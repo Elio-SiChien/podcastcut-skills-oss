@@ -29,9 +29,11 @@ user: 剪一下，3 人闲聊
 
 或者干脆只有附件没文字——我看到 audio attachment 默认意图就是剪辑。
 
+**如果用户没有附件**（只说"剪一下"/"帮我剪本期"等意图）→ 走下面"前置：大文件上传"路径，cloud-bridge 开一个 upload 页让用户拖文件。
+
 ## 前置：profile
 
-调 `slock attachment view --id <attachment-id> --output <local-path>` 把 audio 下载到 local。
+如果是 attachment 路径：调 `slock attachment view --id <attachment-id> --output <local-path>` 把 audio 下载到 local（≤50MB attachment 都走这）。
 然后：
 - 检查 `$SKILL_DIR/../profiles/`：没 profile → 自动跑 `podcastcut-onboarding-chat`
 - 多个 profile → chat 问 "这期是哪档播客？[列出来]"
@@ -83,6 +85,48 @@ fi
 >
 > agent **不主动管 tunnel**（不启停 cloudflared）。
 > 管理由 PR #41 的 launchd plist 或用户自己负责。
+
+---
+
+## 前置：大文件上传（>50 MB 音频 / 用户没附件就触发）
+
+Slock 附件硬上限 50 MB；一小时长节目高码率任何选择都会超。用户也可能就直接说"剪一下"没带附件。两种情况都走 cloud-bridge upload session。
+
+```bash
+# 1. mint upload session
+#    create_upload_session.sh 签名：<base_dir> <audio_dest_name> [max_bytes]
+#    生成 12-char token 并把 meta.json 写到 sessions/<token>/，
+#    server 端 GET /u/<token> 渲染上传页，POST /api/<token>/upload 流式写盘
+UPLOAD_SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_upload_session.sh" \
+  "$BASE_DIR" audio_original.mp3)
+
+# 2. chat 把上传 URL 发给用户
+echo "$TUNNEL_URL/u/$UPLOAD_SESSION"
+
+# 3. 阻塞等用户拖完
+#    成功：上传完写 upload.received.json + meta.status=uploaded，exit 0
+#    截断/磁盘错误：meta.status=error，exit 2
+#    24h 没动静：exit 124（agent 可以再问"还剪吗？"决定是否 mint 新 session）
+bash "$SKILL_DIR/cloud-bridge/scripts/watch_upload.sh" "$UPLOAD_SESSION"
+
+# 4. audio 已经在 $BASE_DIR/1_转录/audio_original.mp3 — 进阶段 1 / 2
+```
+
+chat 文案示例：
+
+```
+chat:
+比 Slock 附件能塞的大，给你个直接上传的页面：
+$TUNNEL_URL/u/<session>
+
+把音频拖进去就行，传完我立刻开剪。
+```
+
+**注意**：
+- 默认接收名是 `audio_original.mp3`（剪播客 cut_audio.py 要求的原始音频文件名约定）。如果用户传的是 .wav / .m4a，文件落地后 mime 不一致没关系——cut_audio.py 用 ffmpeg 处理。但**最好让上传名贴源格式**，第二个参数传 `audio_original.<ext>` 视用户预声明而定。
+- `max_bytes` 默认 2 GB，正常播客够用；如果某档播客真的会更大，加第三个参数提高上限。
+- 上传完成后 audio_dest 已经在 BASE_DIR/1_转录/，**直接进阶段 2 转录**，不用再 attachment view。
+- 这条 upload URL 7 天后过期（meta.created_at 决定），过期再让用户上传需要新 mint。
 
 ---
 

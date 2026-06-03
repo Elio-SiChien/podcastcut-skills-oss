@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>上传音频</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+         margin: 0; padding: 24px; background: #f7f5f0; color: #1f1d1a;
+         display: flex; flex-direction: column; align-items: center; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; letter-spacing: .5px; }
+  .sub { color: #6f6a62; font-size: 13px; margin-bottom: 20px; }
+  .drop { width: min(560px, 90vw); min-height: 220px; border: 2px dashed #b9b1a3;
+          border-radius: 12px; background: #fffaf2; display: flex;
+          flex-direction: column; align-items: center; justify-content: center;
+          transition: background .15s ease, border-color .15s ease;
+          padding: 24px; cursor: pointer; }
+  .drop.hover { background: #ffeed1; border-color: #d97706; }
+  .drop.busy  { background: #eef4ff; border-color: #1f6feb; cursor: wait; }
+  .drop.done  { background: #eef9f1; border-color: #2e7d4f; cursor: default; }
+  .drop.fail  { background: #fdecec; border-color: #c0392b; }
+  .icon { font-size: 32px; line-height: 1; }
+  .label { margin-top: 12px; font-size: 14px; font-weight: 500; }
+  .meta  { margin-top: 6px; font-size: 12px; color: #6f6a62; font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  input[type=file] { display: none; }
+  .bar { width: 100%; height: 6px; background: rgba(0,0,0,.08); border-radius: 999px;
+         margin-top: 14px; overflow: hidden; display: none; }
+  .bar .fill { height: 100%; background: #1f6feb; width: 0; transition: width .1s linear; }
+  .drop.busy .bar { display: block; }
+  .status { margin-top: 10px; font-size: 12px; color: #6f6a62;
+            font-family: "SF Mono", ui-monospace, Menlo, monospace; min-height: 14px; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1d1c1a; color: #ece6d8; }
+    .drop { background: #2a2724; border-color: #5b5447; }
+    .drop.done { background: #1f3a2a; border-color: #4f9a6f; }
+    .drop.busy { background: #1f2a3a; border-color: #4f86d9; }
+    .drop.fail { background: #3a2424; border-color: #d96f5f; }
+    .sub, .meta, .status { color: #aea69a; }
+  }
+</style>
+</head>
+<body>
+  <h1>上传音频</h1>
+  <div class="sub">把音频文件拖到下面，或点一下选文件。上传完页面会自动告诉 agent。</div>
+  <label class="drop" id="drop" tabindex="0">
+    <div class="icon" id="icon">⬆️</div>
+    <div class="label" id="label">拖文件到这里 / 点击选择</div>
+    <div class="meta" id="meta"></div>
+    <div class="bar"><div class="fill" id="fill"></div></div>
+    <div class="status" id="status"></div>
+    <input type="file" id="file" accept="audio/*">
+  </label>
+
+<script>
+(function(){
+  const cfg = window.__UPLOAD__ || {};
+  const SESSION = cfg.session;
+  const CAP = cfg.max_bytes || (2 * 1024 * 1024 * 1024);
+
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('file');
+  const icon = document.getElementById('icon');
+  const label = document.getElementById('label');
+  const meta = document.getElementById('meta');
+  const fill = document.getElementById('fill');
+  const status = document.getElementById('status');
+
+  function fmtBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+    if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+    return (n/1024/1024/1024).toFixed(2) + ' GB';
+  }
+
+  function setState(name, opts = {}) {
+    drop.classList.remove('hover', 'busy', 'done', 'fail');
+    if (name) drop.classList.add(name);
+    if (opts.icon) icon.textContent = opts.icon;
+    if (opts.label) label.textContent = opts.label;
+    if (opts.meta != null) meta.textContent = opts.meta;
+    if (opts.status != null) status.textContent = opts.status;
+    if (opts.fill != null) fill.style.width = opts.fill + '%';
+  }
+
+  function pickAndUpload(file) {
+    if (!file) return;
+    if (file.size > CAP) {
+      setState('fail', { icon: '⚠️', label: '文件太大', meta: fmtBytes(file.size) + ' > 上限 ' + fmtBytes(CAP), status: '换个小一点的，或者跟 agent 说调上限' });
+      return;
+    }
+    setState('busy', { icon: '⏳', label: '上传中…', meta: file.name + ' · ' + fmtBytes(file.size), status: '0%', fill: 0 });
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/' + SESSION + '/upload', true);
+    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = e => {
+      if (!e.lengthComputable) return;
+      const pct = (e.loaded / e.total) * 100;
+      setState('busy', { fill: pct, status: pct.toFixed(1) + '%' });
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setState('done', { icon: '✅', label: '上传完成', meta: file.name + ' · ' + fmtBytes(file.size), status: 'agent 已收到，可以关掉这页', fill: 100 });
+      } else {
+        let msg = 'HTTP ' + xhr.status;
+        try { const j = JSON.parse(xhr.responseText); if (j.error) msg += ' — ' + j.error; } catch {}
+        setState('fail', { icon: '⚠️', label: '上传失败', meta: file.name, status: msg });
+      }
+    };
+    xhr.onerror = () => setState('fail', { icon: '⚠️', label: '网络出错', meta: file.name, status: '重试一下' });
+    xhr.send(file);
+  }
+
+  drop.addEventListener('click', () => { if (!drop.classList.contains('busy') && !drop.classList.contains('done')) fileInput.click(); });
+  drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+  fileInput.addEventListener('change', () => pickAndUpload(fileInput.files[0]));
+
+  ['dragenter','dragover'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); if (!drop.classList.contains('busy') && !drop.classList.contains('done')) drop.classList.add('hover'); }));
+  ['dragleave','drop'].forEach(ev =>
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hover'); }));
+  drop.addEventListener('drop', e => {
+    if (drop.classList.contains('busy') || drop.classList.contains('done')) return;
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    pickAndUpload(file);
+  });
+})();
+</script>
+</body>
+</html>
