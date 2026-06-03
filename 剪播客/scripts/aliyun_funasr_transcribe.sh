@@ -52,7 +52,7 @@ RESPONSE=$(curl -s -X POST "https://dashscope.aliyuncs.com/api/v1/services/audio
   -H "Content-Type: application/json" \
   -H "X-DashScope-Async: enable" \
   -d '{
-    "model": "fun-asr",
+    "model": "paraformer-v2",
     "input": {
       "file_urls": ["'"$AUDIO_URL"'"]
     },
