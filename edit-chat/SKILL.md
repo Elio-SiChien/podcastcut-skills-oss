@@ -213,9 +213,50 @@ chat:
 确认就回"OK"，再改告诉我。
 ```
 
-**C. 用户要在网页上自己改** → agent 给本地 review HTML 路径；用户 toggle 完点"导出"下载 `delete_segments_roughcut.json` 拖回 DM；agent 用 `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_roughcut.json` 覆盖原文件 → 继续精剪。
+**C. 用户要在网页上自己改** → agent 给**公网 review URL**（task #16 cloud-bridge）；用户在浏览器 toggle 决策 → 点 "💾 保存进度" 不打扰 agent / 点 "✓ 完成开始剪" → agent fs.watch 到 commit 文件出现 → 自动拾起、继续精剪。
 
-> 路径 D（网页直接 save、agent 自动 pickup）见 backlog task #9，MVP 不做。
+```bash
+# agent 创 session + 启动 watch
+SESSION=$(uuidgen | tr A-Z a-z | sed 's/-//g' | cut -c1-12)
+SDIR="$CLOUD_BRIDGE_ROOT/sessions/$SESSION"
+mkdir -p "$SDIR"
+cat > "$SDIR/meta.json" <<EOF
+{
+  "session": "$SESSION",
+  "base_dir": "$BASE_DIR",
+  "review_html_path": "$BASE_DIR/review_roughcut.html",
+  "audio_path": "$BASE_DIR/1_转录/audio_seekable.mp3",
+  "created_at": $(date +%s)000,
+  "status": "viewing",
+  "stage": "roughcut"
+}
+EOF
+
+# chat 里把 URL 发给用户
+echo "审查页：$TUNNEL_URL/r/$SESSION"
+
+# 等 commit signal（user 在浏览器点 ✓ 完成）
+while [ ! -f "$SDIR/state.committed.json" ]; do sleep 5; done
+
+# pickup 用户的最终决策，写到下游期待的 delete_segments_roughcut.json
+node -e "
+const s = require('$SDIR/state.committed.json');
+const fs = require('fs');
+const sentences = require('$BASE_DIR/2_分析/sentences.txt'); // 用来算 segments
+const out = {
+  version: 'roughcut_v1',
+  exported_at: new Date().toISOString(),
+  sentence_deletes: s.sentence_deletes || [],
+  partial_deletes: s.partial_deletes || {},
+  segments: s.segments || []  // 如果 user 没传，下游兜底再计算
+};
+fs.writeFileSync('$BASE_DIR/2_分析/delete_segments_roughcut.json', JSON.stringify(out, null, 2));
+"
+```
+
+> 详细 cloud-bridge 架构 + setup 见 `cloud-bridge/README.md`。MVP 用 cloudflared quick tunnel（免费、ephemeral），URL 每次 cloudflared 重启会变。
+
+> **C 是 chat-mode skill MVP 推荐路径**（不再 fallback 到本地 file:// + 导出/拖回 DM 的旧 D 路径）。仍保留对老 case 的兼容：用户拖 `delete_segments_roughcut.json` 进 DM 也照常处理。
 
 ### 名词约定（避免 chat 文案再出现的模糊用语）
 

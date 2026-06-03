@@ -1463,6 +1463,124 @@ function sv(){invalidateSkipRanges();try{localStorage.setItem(SK,JSON.stringify(
 function rs(){try{const r=localStorage.getItem(SK);if(!r)return;const s=JSON.parse(r);if(s.v!==DATA_VER)return;if(s.d){del.clear();s.d.forEach(i=>del.add(i))}if(s.m)s.m.forEach(i=>um.add(i));if(s.p){for(const k in pdel)delete pdel[k];Object.assign(pdel,s.p)}if(s.fd)s.fd.forEach(k=>fdis.add(k));if(s.re)s.re.forEach(k=>rdExp.add(k));invalidateSkipRanges();}catch(e){}}
 function showT(m){const el=document.getElementById('toast');el.textContent=m;el.classList.add('vis');setTimeout(()=>el.classList.remove('vis'),2000)}
 
+// ─────────────────────── cloud-bridge integration (task #16) ───────────────────
+// 当页面通过 cloud-bridge server 投递时，window.__CLOUD_BRIDGE__ 由 server 注入。
+// 本地直接 file:// 打开时不存在 → 整段 skip，原行为不变。
+(function setupCloudBridge(){
+  const cb = window.__CLOUD_BRIDGE__;
+  if (!cb || !cb.session) return;
+  const SESSION = cb.session;
+
+  // 1. 顶栏：把"导出"按钮 + 旁边的 info-icon 换成"保存进度 / 完成开始剪"
+  // 用同款 .expbtn 白底样式，跟原 UI 协调；不再 sticky 在右下，避免遮挡播放器。
+  const topbar = document.querySelector('.topbar');
+  const oldExp = topbar && topbar.querySelector('.expbtn');
+  const oldInfo = topbar && topbar.querySelector('.info-icon');
+  if (oldInfo) oldInfo.remove();
+  if (oldExp) oldExp.remove();
+  // info-tip popup（关于导出的说明）也藏了，cloud-bridge 模式不导出
+  const infoTip = document.getElementById('info-tip'); if (infoTip) infoTip.remove();
+
+  const statusEl = document.createElement('span');
+  statusEl.id = 'cb-status';
+  statusEl.style.cssText = 'font-size:11px;color:var(--muted);letter-spacing:1px;font-family:"SF Mono",monospace;margin-right:12px';
+  topbar.appendChild(statusEl);
+
+  const btnSave = document.createElement('button');
+  btnSave.className = 'expbtn';
+  btnSave.id = 'cb-save';
+  btnSave.textContent = '保存进度';
+  btnSave.style.marginRight = '8px';
+  topbar.appendChild(btnSave);
+
+  const btnCommit = document.createElement('button');
+  btnCommit.className = 'expbtn';
+  btnCommit.id = 'cb-commit';
+  btnCommit.textContent = '完成，开始剪';
+  topbar.appendChild(btnCommit);
+
+  function setStatus(msg, color){ statusEl.textContent = msg; if (color) statusEl.style.color = color; }
+
+  // 2. POST 状态到 server
+  async function postState(commit){
+    const body = {
+      sentence_deletes: [...del].sort((a,b)=>a-b),
+      partial_deletes: pdel,
+      fdis: [...fdis],
+      rdExp: [...rdExp],
+      timestamp: Date.now()
+    };
+    const ep = commit ? 'commit' : 'save';
+    setStatus(commit ? '提交中…' : '保存中…');
+    try {
+      const r = await fetch(`/api/${SESSION}/${ep}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      if (commit) {
+        setStatus('✓ 已提交，agent 继续剪辑', '#1f6feb');
+        btnSave.disabled = true;
+        btnCommit.disabled = true;
+        btnSave.style.opacity = '.4';
+        btnCommit.style.opacity = '.4';
+      } else {
+        setStatus(`✓ 已保存 ${new Date().toLocaleTimeString()}`, '#9bb083');
+      }
+    } catch (e) {
+      setStatus('✗ ' + e.message, '#c0392b');
+    }
+  }
+
+  btnSave.onclick = () => postState(false);
+  btnCommit.onclick = async () => {
+    if (!confirm('确认完成并开始剪辑？提交后这条 URL 就锁定了，不能再改。')) return;
+    await postState(true);
+  };
+
+  // 3. 30s 自动 silent save
+  setInterval(() => {
+    // 静默存：不弹 toast，只悄悄 POST，失败也不打扰用户
+    fetch(`/api/${SESSION}/save`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        sentence_deletes: [...del].sort((a,b)=>a-b),
+        partial_deletes: pdel,
+        fdis: [...fdis],
+        rdExp: [...rdExp],
+        timestamp: Date.now()
+      })
+    }).catch(() => {});
+  }, 30000);
+
+  // 4. 页面 load 时从 server 拉最新 state，覆盖 localStorage（多设备同步）
+  (async () => {
+    try {
+      const r = await fetch(`/api/${SESSION}/state`);
+      if (!r.ok) return;
+      const s = await r.json();
+      if (s.initial) { setStatus('新 session，开始编辑'); return; }
+      if (s.sentence_deletes) { del.clear(); s.sentence_deletes.forEach(i => del.add(i)); }
+      if (s.partial_deletes) { for (const k in pdel) delete pdel[k]; Object.assign(pdel, s.partial_deletes); }
+      if (s.fdis) { fdis.clear(); s.fdis.forEach(k => fdis.add(k)); }
+      if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
+      invalidateSkipRanges();
+      renderAll();
+      setStatus('载入服务器版本（' + new Date(s.timestamp || s.received_at).toLocaleString() + '）');
+    } catch (e) { /* fallback to localStorage */ }
+  })();
+
+  // 5. audio 改走 server proxy（如果 player 用 file:// 路径，强制重定向到 /api/<session>/audio）
+  const au = document.getElementById('au');
+  if (au) {
+    au.src = `/api/${SESSION}/audio`;
+    au.load();
+  }
+})();
+
 rs();renderAll();
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body){e.preventDefault();tgPlay()}});
 
