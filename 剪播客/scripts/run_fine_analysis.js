@@ -381,121 +381,35 @@ for (const sent of sentences) {
   }
 }
 
-// === RULE 4: Phrase-level repeat detection (短语级句内重复) ===
-// Catches: "可以去可以去"、"放到台面来说，放到台面上来说"
-// Based on 6-句内重复检测.md
+// === RULE 4: Phrase-level repeat detection (短语级句内重复) — DISABLED ===
 //
-// Strategy: catch broadly (≥3 chars), use confidence/needsReview to let LLM decide.
-// Only hard-filter pure function-word phrases (e.g. "的一个") that are always structural.
-const FUNCTION_WORDS_ONLY = /^[的了在是有一个这那些于与和为也到上下中不么什]+$/;
-
-for (const sent of sentences) {
-  if (deletedSentences.has(sent.idx)) continue;
-  const text = sent.text.replace(/[，。！？、：；""''（）\s]/g, '');
-  if (text.length < 8) continue; // need at least 4+4
-
-  let bestMatch = null;
-
-  // Find longest repeating phrase (≥3 chars, search from long to short)
-  for (let len = Math.min(Math.floor(text.length / 2), 20); len >= 3; len--) {
-    for (let start = 0; start <= text.length - len * 2; start++) {
-      const phrase = text.slice(start, start + len);
-
-      // Skip if phrase is all same char (already caught by word-level stutter)
-      if (new Set(phrase).size === 1) continue;
-
-      // Hard filter: pure function-word phrases are always structural, not repeats
-      if (FUNCTION_WORDS_ONLY.test(phrase)) continue;
-
-      const nextPos = text.indexOf(phrase, start + len);
-      if (nextPos < 0) continue;
-
-      // Gap between two occurrences should be small (≤ phrase length * 2)
-      const gap = nextPos - start - len;
-      if (gap > len * 2) continue;
-
-      // Skip if this is a natural pattern (AABB, rhetorical repetition)
-      // e.g. "越来越" is not a stutter
-      if (len <= 3 && gap === 0) continue; // "越来越来" etc handled by word rules
-
-      if (!bestMatch || len > bestMatch.len) {
-        bestMatch = { phrase, start, nextPos, len, gap };
-      }
-    }
-    if (bestMatch) break; // found longest match
-  }
-
-  if (!bestMatch) continue;
-
-  // Map character positions back to word positions
-  // We need to find the words that correspond to the first occurrence
-  const origText = sent.text;
-  let charCount = 0;
-  const cleanToOrig = []; // maps clean-text index to original-text index
-  for (let j = 0; j < origText.length; j++) {
-    const c = origText[j];
-    if (!/[，。！？、：；""''（）\s]/.test(c)) {
-      cleanToOrig[charCount] = j;
-      charCount++;
-    }
-  }
-
-  // Find word indices for the delete range (first occurrence + gap)
-  const deleteOrigStart = cleanToOrig[bestMatch.start] || 0;
-  const deleteOrigEnd = cleanToOrig[bestMatch.nextPos - 1] || origText.length;
-
-  // Find which words fall in the delete range
-  let deleteWordStart = -1, deleteWordEnd = -1;
-  let cumLen = 0;
-  for (let wi = 0; wi < sent.words.length; wi++) {
-    const wText = sent.words[wi].text;
-    const wOrigStart = origText.indexOf(wText, cumLen);
-    cumLen = wOrigStart + wText.length;
-
-    if (wOrigStart <= deleteOrigStart && deleteWordStart < 0) deleteWordStart = wi;
-    if (wOrigStart <= deleteOrigEnd) deleteWordEnd = wi;
-  }
-
-  if (deleteWordStart < 0 || deleteWordEnd < 0 || deleteWordStart >= sent.words.length) continue;
-  // Don't delete if it covers the whole sentence
-  if (deleteWordStart === 0 && deleteWordEnd >= sent.words.length - 1) continue;
-
-  // Check overlap with existing edits
-  const overlapExists = edits.some(e =>
-    e.sentenceIdx === sent.idx && e.type !== 'silence' &&
-    e.deleteStart < sent.words[deleteWordEnd].end &&
-    e.deleteEnd > sent.words[deleteWordStart].start
-  );
-  if (overlapExists) continue;
-
-  const deleteWords = sent.words.slice(deleteWordStart, deleteWordEnd + 1);
-  const deleteTextFull = deleteWords.map(w => w.text).join('');
-
-  // Confidence heuristics:
-  // - Short phrase (3-4 chars) or large gap → more likely natural → lower confidence
-  // - Long phrase (≥5 chars) with small gap → almost certainly oral stutter → higher confidence
-  // - Phrase starting with structural particle (的/了) → likely structural → needsReview
-  const isShort = bestMatch.len <= 4;
-  const isLargeGap = bestMatch.gap > bestMatch.len;
-  const startsWithParticle = ['的', '了'].includes(bestMatch.phrase[0]);
-  const isHighConf = bestMatch.len >= 5 && bestMatch.gap <= 3 && !startsWithParticle;
-
-  edits.push({
-    idx: editIdx++,
-    sentenceIdx: sent.idx,
-    type: 'in_sentence_repeat',
-    rule: '6-句内重复(短语级)',
-    wordRange: [sent.wordRange[0] + deleteWordStart, sent.wordRange[0] + deleteWordEnd],
-    deleteText: deleteTextFull,
-    keepText: bestMatch.phrase,
-    deleteStart: parseFloat(deleteWords[0].start.toFixed(2)),
-    deleteEnd: parseFloat(deleteWords[deleteWords.length - 1].end.toFixed(2)),
-    reason: `短语"${bestMatch.phrase}"重复，删第一次+间隔(${bestMatch.gap}字gap)`,
-    needsReview: !isHighConf,
-    reviewHint: isHighConf ? undefined : `短语"${bestMatch.phrase}"出现两次(${bestMatch.gap}字gap)，可能是口误重复也可能是并列/强调结构，请根据语境判断`,
-    confidence: isHighConf ? 0.9 : (isShort || startsWithParticle ? 0.5 : 0.7)
-  });
-}
+// ⚠️  DO NOT RE-ENABLE without rebuilding on top of an eval set.
+//
+// Precision crisis (audit data, 2026-06):
+//   - meeting_02 五点一刻 (459-sentence Chinese interview):
+//       15 in_sentence_repeat edits emitted by rule layer
+//       14 restored by user (xiangge-li)  →  7% retention / 93% false positive
+//   - Other rule types retained at 87–100%; this detector was the lone outlier.
+//
+// Why it fails: short-phrase repetition (≥3 chars within ≤2*len gap) is a
+// natural feature of spoken Chinese — parallelism, emphasis, list structure,
+// "X的时候…X的时候…" framing, "我觉得…我觉得…" hedging, etc. The rule has no
+// reliable way to distinguish stutter from rhetoric without semantic context,
+// and the needsReview→default-confirm path in merge_llm_fine.js means low-
+// confidence emissions still ship as deletes.
+//
+// What still covers the high-value subset:
+//   - Word-level stutter rule above (RULE 1/2) catches "我我"、"就就" etc.
+//   - LLM layer's `self_correction` detector catches true repeat-and-restart
+//     ("放到台面来说，放到台面上来说") where semantic context confirms it.
+//
+// If you want to bring this back, gate it on:
+//   1. A real labeled eval set (see slock task #15: formal精剪 eval scaffolding).
+//   2. Precision ≥ 80% on that set before flipping back on.
+//   3. Probably also: require LLM positive confirmation (not the current
+//      default-confirm-on-unreviewed path in merge_llm_fine.js).
+//
+// — nerfed in PR `nerf-in-sentence-repeat`
 
 // === RULE 5: Consecutive filler detection (连续填充词) ===
 // Catches: "嗯啊"、"呃啊"、"嗯嗯嗯"、"这个这个这个" (≥3 consecutive filler words)
