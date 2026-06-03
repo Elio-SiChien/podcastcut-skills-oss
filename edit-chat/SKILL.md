@@ -42,6 +42,38 @@ profile 字段（结构见 `onboarding-chat/SKILL.md`）：
 
 ---
 
+## 前置：cloud-bridge 状态
+
+阶段 4（粗剪）与阶段 5（精剪）的审查页**默认通过 cloud-bridge 公网 URL 交付**——用户在浏览器里 toggle 完直接点 "💾 保存进度" 或 "✓ 完成开始剪"，agent 这边不用再让用户下载 JSON 拖回 DM。
+
+启动 agent 时先检查 cloud-bridge 服务是否就绪：
+
+```bash
+# 约定：CLOUD_BRIDGE_ROOT 指向 cloud-bridge 服务安装目录
+#       默认 $SKILL_DIR/../cloud-bridge（与本仓库同级）
+: "${CLOUD_BRIDGE_ROOT:=$SKILL_DIR/../cloud-bridge}"
+
+# current_tunnel_url.txt 由 launchd plist（兄弟 PR C）在开机时写入
+# 内容形如：https://<random-subdomain>.trycloudflare.com
+if [ -f "$CLOUD_BRIDGE_ROOT/current_tunnel_url.txt" ]; then
+  TUNNEL_URL="$(cat "$CLOUD_BRIDGE_ROOT/current_tunnel_url.txt")"
+else
+  TUNNEL_URL=""
+fi
+```
+
+如果 `current_tunnel_url.txt` 缺失或里面的 URL `curl` 不通（陈旧 tunnel），chat 里提醒用户：
+
+```
+chat:
+cloud-bridge 还没起来——本机服务 + cloudflared 跑了吗？
+（兜底：阶段 4/5 我可以退回旧的本地 file:// 审查页 + 拖 JSON 回 DM 的路径 C 流程。）
+```
+
+> tunnel URL 的生命周期：launchd 启动 cloudflared 后写一次，机器重启或 tunnel 重连时会换。这里只是读，不主动管 tunnel；管理由兄弟 PR C 的 plist 负责。
+
+---
+
 ## 阶段 1：录后复盘（屏 3 chat 版）
 
 只问关键 4 项，**不要把屏 3 全部 7 个字段塞 chat**（chat 服务核心是少而精）：
@@ -188,7 +220,7 @@ chat:
 你可以这样跟我说：
 - "OK" / "可以" / "继续" → 我直接进精剪
 - "把第 3 段留着" / "1 和 4 别删" → 我把那几段从删除列表里拿出来，重新给你看一版
-- "想自己改" → 我给你审查页地址，你在网页上 toggle 完导出 JSON 拖回来给我
+- "想自己改" → 我开个网页给你 toggle，你点保存我这边自动 pickup
 ```
 
 用户决策路径：
@@ -198,7 +230,7 @@ chat:
 **B. 用户口头指示改某些块**（用自然语言，如 "把第 3 段留着"、"1 和 4 别删"、"再把 7 段也删掉"）：
 1. agent 解析 → 修改 `semantic_deep_analysis.json` 中对应 block 的 `action`（delete ↔ keep）或新增 block
 2. 用更新后的 analysis **重新生成 `review_roughcut.html`** —— 让用户在网页上看到当前的删除决策视觉效果
-3. 把改动总结 + 新 review HTML 路径 chat 出来，再等用户 confirm
+3. 把改动总结 + 新 review HTML 路径 chat 出来，再等用户 confirm（如果同时也用了 cloud-bridge URL 流程，刷新页面即可）
 
 ```
 chat:
@@ -209,54 +241,50 @@ chat:
 4. [55:00-56:30] ...
 5. [62:00-62:45] ...
 
-新的审查页：file:///.../review_roughcut.html
-确认就回"OK"，再改告诉我。
+刷新刚才那个审查页就能看到新版本，确认回"OK"。
 ```
 
-**C. 用户要在网页上自己改** → agent 给**公网 review URL**（task #16 cloud-bridge）；用户在浏览器 toggle 决策 → 点 "💾 保存进度" 不打扰 agent / 点 "✓ 完成开始剪" → agent fs.watch 到 commit 文件出现 → 自动拾起、继续精剪。
+**C. 用户要在网页上自己改 —— 默认走 cloud-bridge 公网 URL（推荐）**：
 
 ```bash
-# agent 创 session + 启动 watch
-SESSION=$(uuidgen | tr A-Z a-z | sed 's/-//g' | cut -c1-12)
-SDIR="$CLOUD_BRIDGE_ROOT/sessions/$SESSION"
-mkdir -p "$SDIR"
-cat > "$SDIR/meta.json" <<EOF
-{
-  "session": "$SESSION",
-  "base_dir": "$BASE_DIR",
-  "review_html_path": "$BASE_DIR/review_roughcut.html",
-  "audio_path": "$BASE_DIR/1_转录/audio_seekable.mp3",
-  "created_at": $(date +%s)000,
-  "status": "viewing",
-  "stage": "roughcut"
-}
-EOF
+# 1. Mint session for this stage
+#    create_session.sh 由兄弟 PR A 提供，签名：
+#      create_session.sh <stage> <review_html_path> <audio_path>
+#    TODO: PR A (task-16-cloud-helpers) merge 后此引用即可用
+SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_session.sh" \
+  roughcut \
+  "$BASE_DIR/review_roughcut.html" \
+  "$BASE_DIR/1_转录/audio_seekable.mp3")
 
-# chat 里把 URL 发给用户
+# 2. Tell user (chat) —— TUNNEL_URL 已在前置阶段从
+#    $CLOUD_BRIDGE_ROOT/current_tunnel_url.txt 读出
 echo "审查页：$TUNNEL_URL/r/$SESSION"
 
-# 等 commit signal（user 在浏览器点 ✓ 完成）
-while [ ! -f "$SDIR/state.committed.json" ]; do sleep 5; done
+# 3. Block until user commits（用户点 "✓ 完成开始剪"，server 写
+#    state.committed.json；点 "💾 保存进度" 写 state.draft.json，不解除阻塞）
+bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
 
-# pickup 用户的最终决策，写到下游期待的 delete_segments_roughcut.json
-node -e "
-const s = require('$SDIR/state.committed.json');
-const fs = require('fs');
-const sentences = require('$BASE_DIR/2_分析/sentences.txt'); // 用来算 segments
-const out = {
-  version: 'roughcut_v1',
-  exported_at: new Date().toISOString(),
-  sentence_deletes: s.sentence_deletes || [],
-  partial_deletes: s.partial_deletes || {},
-  segments: s.segments || []  // 如果 user 没传，下游兜底再计算
-};
-fs.writeFileSync('$BASE_DIR/2_分析/delete_segments_roughcut.json', JSON.stringify(out, null, 2));
-"
+# 4. Translate committed state to expected file
+#    extract_commit_to_export.sh 把 state.committed.json 转成
+#    $BASE_DIR/2_分析/delete_segments_roughcut.json
+bash "$SKILL_DIR/cloud-bridge/scripts/extract_commit_to_export.sh" "$SESSION" roughcut
 ```
 
-> 详细 cloud-bridge 架构 + setup 见 `cloud-bridge/README.md`。MVP 用 cloudflared quick tunnel（免费、ephemeral），URL 每次 cloudflared 重启会变。
+chat 文案示例：
 
-> **C 是 chat-mode skill MVP 推荐路径**（不再 fallback 到本地 file:// + 导出/拖回 DM 的旧 D 路径）。仍保留对老 case 的兼容：用户拖 `delete_segments_roughcut.json` 进 DM 也照常处理。
+```
+chat:
+打开这个看你的删除决策（手机/电脑都行）：
+https://<tunnel>.trycloudflare.com/r/<session>
+
+随时点 "💾 保存进度"（我等着、不开剪）；
+都满意了点 "✓ 完成开始剪"，我立刻继续精剪。
+```
+
+**C 备选（路径 C 退路）—— 仅在 cloud-bridge 不可用或用户明确要求时走旧流程**：
+agent 给本地 review HTML 路径；用户 toggle 完点"导出"下载 `delete_segments_roughcut.json` 拖回 DM；agent 用 `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_roughcut.json` 覆盖原文件 → 继续精剪。
+
+> cloud-bridge 流程取代了原 backlog task #9（"网页直接 save、agent 自动 pickup"），#9 已并入 task #16 实现。
 
 ### 名词约定（避免 chat 文案再出现的模糊用语）
 
@@ -270,20 +298,42 @@ fs.writeFileSync('$BASE_DIR/2_分析/delete_segments_roughcut.json', JSON.string
 
 调 `podcastcut-精剪` skill。@xiangge-li 明确说**不要在 chat 里追问精剪填充词细节**——只报数字 + 给可选精修入口，然后**等用户回复**，不主动往下跑。
 
-完成后短报：
-```
-chat: 精剪完了，删了 387 个填充词 + 60 个长停顿，再 -3 min。
+完成后短报 + **默认开 cloud-bridge URL 审查页**（与阶段 4 同模式，stage 改成 `fine`，HTML 改成 `review_enhanced.html`，extract 阶段写 `delete_segments_edited.json`）：
 
-2 个选择：
-- 「OK」→ 我直接出片
-- 想精修个别决策（一般不需要）：打开 file:///Volumes/.../剪播客/review_enhanced.html
-  → toggle/半句删除 → 导出 delete_segments_edited.json 拖回 DM
-  → 我用你的版本出片
+```bash
+# 1. Mint session for fine-cut stage
+#    TODO: PR A (task-16-cloud-helpers) merge 后此引用即可用
+SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_session.sh" \
+  fine \
+  "$BASE_DIR/review_enhanced.html" \
+  "$BASE_DIR/1_转录/audio_seekable.mp3")
+
+# 2. Tell user (chat)
+echo "审查页：$TUNNEL_URL/r/$SESSION"
+
+# 3. Block until user commits（"✓ 完成开始剪" → state.committed.json）
+bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
+
+# 4. Translate committed state to expected file
+#    fine stage 下 extract 写
+#    $BASE_DIR/2_分析/delete_segments_edited.json
+bash "$SKILL_DIR/cloud-bridge/scripts/extract_commit_to_export.sh" "$SESSION" fine
+```
+
+chat 文案示例：
+
+```
+chat:
+精剪完了，删了 387 个填充词 + 60 个长停顿，再 -3 min。
+
+想直接出片就回 "OK"——或者打开下面这页 toggle 一下，点 "✓ 完成开始剪" 我用你的版本出片：
+https://<tunnel>.trycloudflare.com/r/<session>
 ```
 
 用户决策（agent 等消息，不主动 fire）：
-- "OK" → 进阶段 6 出片
-- 拖回 `delete_segments_edited.json` 附件 → `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_edited.json` 覆盖，再进出片
+- "OK" → 跳过 watch_commit，直接进阶段 6 出片（用现有 `delete_segments_edited.json`）
+- 在网页上点 "✓ 完成开始剪" → `watch_commit.sh` 返回 → `extract_commit_to_export.sh` 写新 `delete_segments_edited.json` → 进出片
+- **路径 C 退路（仅在 cloud-bridge 不可用时）**：用户从本地 `file://.../review_enhanced.html` 导出 `delete_segments_edited.json` 拖回 DM → `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_edited.json` 覆盖
 - 长时间没回 → 不做任何事；用户下次发消息再继续
 
 > 关键：agent 是消息驱动的，**不要 schedule timer / reminder 来"自动往下走"**。让用户决定何时继续。
