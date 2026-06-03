@@ -72,6 +72,24 @@ chat: 收到，开始转录...
 
 调 `podcastcut-转录` skill。完成后 → speaker 识别 checkpoint。
 
+### 2a. 热词注册（task #15）
+
+如果当前 profile 的 `glossary` 非空，**在调转录脚本之前**先注册阿里云 paraformer-v2 热词表，拿到 `vocabulary_id`，作为转录脚本第 3 个参数传入——避免 ASR 把人名/品牌错转成同音字（如 "清扬" → "庆扬"）。
+
+```bash
+# profile 已在前置阶段 cp 到 $BASE_DIR/profile.json
+if [ "$(node -e "const p=require('$BASE_DIR/profile.json');process.stdout.write(String((p.glossary||[]).length))")" -gt 0 ]; then
+  cd "$BASE_DIR/1_转录"
+  bash "$SKILL_DIR/剪播客/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
+fi
+# 调转录脚本时把第 3 个参数 vocabulary_id 传进去（不存在则空字符串，脚本忽略）
+VOCAB_ID=""
+[ -f "$BASE_DIR/1_转录/vocabulary_id.txt" ] && VOCAB_ID="$(cat "$BASE_DIR/1_转录/vocabulary_id.txt")"
+bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
+```
+
+注意：每个 DashScope 账户最多 10 个 vocabulary。重复跑同 profile 会重复创建——后续 task 可考虑缓存 vocabulary_id（按 glossary hash key）跳过已注册。MVP 暂时每次重创建。
+
 ---
 
 ## 阶段 3：说话人确认 checkpoint（屏 4 chat 版）

@@ -1,7 +1,10 @@
 #!/bin/bash
 #
 # 阿里云FunASR API转录脚本（用于播客剪辑）
-# 用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量>
+# 用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量> [vocabulary_id]
+#
+# vocabulary_id 可选：paraformer-v2 热词表 ID（见 register_hot_words.sh）
+# 也可通过环境变量 VOCABULARY_ID 提供。
 #
 
 set -e
@@ -20,13 +23,14 @@ fi
 if [ -z "$1" ]; then
     echo "❌ 错误：请提供音频URL"
     echo ""
-    echo "用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量>"
-    echo "示例: bash aliyun_funasr_transcribe.sh \"https://example.com/audio.mp3\" 3"
+    echo "用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量> [vocabulary_id]"
+    echo "示例: bash aliyun_funasr_transcribe.sh \"https://example.com/audio.mp3\" 3 vocab-podcst-xxx"
     exit 1
 fi
 
 AUDIO_URL="$1"
 SPEAKER_COUNT="${2:-2}"  # 默认2个说话人
+VOCABULARY_ID="${3:-${VOCABULARY_ID:-}}"  # 可选：CLI 第 3 参数 或 env VOCABULARY_ID
 
 # 检查API Key
 if [ -z "$DASHSCOPE_API_KEY" ]; then
@@ -44,24 +48,44 @@ API_KEY="$DASHSCOPE_API_KEY"
 echo "🎤 提交阿里云FunASR转录任务"
 echo "   音频URL: $AUDIO_URL"
 echo "   说话人数: $SPEAKER_COUNT"
+if [ -n "$VOCABULARY_ID" ]; then
+  echo "   热词表: $VOCABULARY_ID"
+fi
 echo ""
 
+# 用 node 构造 body，避免 shell 字符串拼接漏 escape 或字段位置出错
+REQUEST_BODY=$(node -e "
+  const url = process.argv[1];
+  const speakerCount = parseInt(process.argv[2], 10);
+  const vocabId = process.argv[3] || '';
+  const params = {
+    diarization_enabled: true,
+    speaker_count: speakerCount,
+    channel_id: [0]
+  };
+  if (vocabId) params.vocabulary_id = vocabId;
+  const body = {
+    model: 'paraformer-v2',
+    input: { file_urls: [url] },
+    parameters: params
+  };
+  process.stdout.write(JSON.stringify(body));
+" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCABULARY_ID")
+
+# DRY_RUN：仅打印 body，不调用 API（测试用）
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "[DRY_RUN] 转录请求 body:"
+  echo "$REQUEST_BODY" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(JSON.parse(d),null,2)))"
+  echo "[DRY_RUN] 跳过实际 API 调用"
+  exit 0
+fi
+
 # 提交任务
-RESPONSE=$(curl -s -X POST "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription" \
+RESPONSE=$(echo "$REQUEST_BODY" | curl -s -X POST "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -H "X-DashScope-Async: enable" \
-  -d '{
-    "model": "paraformer-v2",
-    "input": {
-      "file_urls": ["'"$AUDIO_URL"'"]
-    },
-    "parameters": {
-      "diarization_enabled": true,
-      "speaker_count": '$SPEAKER_COUNT',
-      "channel_id": [0]
-    }
-  }')
+  -d @-)
 
 # 检查提交结果
 TASK_ID=$(echo "$RESPONSE" | grep -o '"task_id":"[^"]*"' | cut -d'"' -f4)

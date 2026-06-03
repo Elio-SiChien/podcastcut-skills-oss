@@ -79,6 +79,25 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 # 产出 aliyun_funasr_transcription.json（脚本已修复 0 字节下载 bug）
 ```
 
+#### 4a. 热词注册（task #15，profile.glossary 非空时）
+
+阿里云 paraformer-v2 经常把人名/品牌/术语错转成同音字（如 "清扬" → "庆扬"/"清雅"/"青阳"）。如果 profile 有 `glossary`，先注册热词表拿到 `vocabulary_id`，然后把它作为转录脚本的第 3 个参数传入：
+
+```bash
+# 在 step 4 之前：如果有 profile.glossary，注册热词
+if [ -f "$BASE_DIR/profile.json" ] && [ "$(node -e "const p=require('$BASE_DIR/profile.json');process.stdout.write(String((p.glossary||[]).length))")" -gt 0 ]; then
+  cd "$BASE_DIR/1_转录"
+  bash "$SKILL_DIR/剪播客/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
+fi
+
+# step 4：转录时把 vocabulary_id 传进去
+VOCAB_ID=""
+[ -f "$BASE_DIR/1_转录/vocabulary_id.txt" ] && VOCAB_ID="$(cat "$BASE_DIR/1_转录/vocabulary_id.txt")"
+bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
+```
+
+热词约束：单词非 ASCII 时 ≤15 字符，weight 默认 4，每账户最多 10 个 vocabulary，每个最多 500 词。脚本会过滤超长/重复/空串。详见 https://help.aliyun.com/zh/model-studio/custom-hot-words/ 。
+
 ### 5. 识别说话人 + 创建映射
 
 **⚠️ 红线（Bug C 教训，2026-06-02）**：`speaker_mapping.json` **必须在第 6 步之前写好**。`generate_subtitles_from_aliyun.js` 把 mapping 烘进 subtitles_words.json 的 speaker 字段；写完后再改 mapping 不会回写到已生成的 subtitles/sentences——必须**重跑** step 6 才能生效。
