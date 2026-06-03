@@ -62,15 +62,27 @@ else
 fi
 ```
 
-如果 `current_tunnel_url.txt` 缺失或里面的 URL `curl` 不通（陈旧 tunnel），chat 里提醒用户：
+### Fallback 顺序（很重要）：URL 拿不到时 agent 必须知道怎么修复
 
 ```
-chat:
-cloud-bridge 还没起来——本机服务 + cloudflared 跑了吗？
-（兜底：阶段 4/5 我可以退回旧的本地 file:// 审查页 + 拖 JSON 回 DM 的路径 C 流程。）
+1. 文件存在 + curl HEAD 通 → 直接用
+2. 文件存在 但 curl HEAD 404/超时（旧 tunnel） →
+     问用户："tunnel URL 好像过期了，你那 cloudflared terminal 最新 URL 是？"
+     **收到后写回文件**：echo "$NEW_URL" > "$CLOUD_BRIDGE_ROOT/current_tunnel_url.txt"
+     下次不用再问
+3. 文件不存在（首次 / 没装 launchd）→ 同 2
+4. 用户说"现在不想 cloud-bridge"（明确拒绝）→ 退回路径 C（file:// 审查页 + 拖 JSON 回 DM）
 ```
 
-> tunnel URL 的生命周期：launchd 启动 cloudflared 后写一次，机器重启或 tunnel 重连时会换。这里只是读，不主动管 tunnel；管理由兄弟 PR C 的 plist 负责。
+**关键**：agent **不要每次都问** URL——current_tunnel_url.txt 存在且仍通就直接用。也**不要默认走 file:// 兜底**——cloud-bridge 是 chat-mode MVP 推荐流程，file:// 是 last resort。
+
+> tunnel URL 的生命周期：
+> - 装了 launchd（`cloud-bridge/launchd/install.sh`）→ 开机自动 + cloudflared 重启后 extract_url.sh 写文件
+> - 没装 launchd（手动 `cloudflared tunnel --url ...`）→ agent 第一次跑时问用户、写文件、之后自动用
+> - cloudflared 重启换 URL → 用户在 chat 告诉 agent 新 URL，agent 覆盖文件
+>
+> agent **不主动管 tunnel**（不启停 cloudflared）。
+> 管理由 PR #41 的 launchd plist 或用户自己负责。
 
 ---
 
