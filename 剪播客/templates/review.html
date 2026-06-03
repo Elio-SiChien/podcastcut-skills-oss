@@ -940,15 +940,25 @@ function delSel(){
     cc=wE;
   }
   if(sW===null||eW===null){ hideSelBtn(); return; }
+  // task #11 (2026-06-02): SNAP TO WORD BOUNDARY
+  // 之前 sOff/eOff > 0 时按字符比例插值切入词内部，会产生 ASR token 子片段（"了一些"
+  // 切到中间 = "了" 留下 + "一些" 删，但 fade ramp 30ms 让"了"尾音含"一"音残响）。
+  // 现在改为：用户选中任何词的任意部分 → 自动 expand 到完整 word 边界。
+  // ASR token 是原子操作单位，partial 必须 word-aligned。
+  // 副作用：cs/ce 也要扩到 word 边界（让 .pd 渲染的视觉区间覆盖完整词）。
+  const snapWordStartChar = (() => { let c=0; for(let i=0;i<sW;i++) c+=wt[i].length; return c; })();
+  const snapWordEndChar = (() => { let c=0; for(let i=0;i<=eW;i++) c+=wt[i].length; return c; })();
+  const snappedPos = snapWordStartChar;
+  const snappedEnd = snapWordEndChar;
   const sw=x.w[sW], ew=x.w[eW];
-  // 词内按字符比例插值时间（ASR 合词时也能切准）
-  let st=(sOff>0 && wt[sW].length>0) ? sw.s+(sw.e-sw.s)*(sOff/wt[sW].length) : sw.s;
-  let et=(eOff>0 && wt[eW].length>0) ? ew.e-(ew.e-ew.s)*(eOff/wt[eW].length) : ew.e;
-  // 有条件边界扩展（仅当选区正好落在词边界时）：起点 gap<0.2s 前移，终点 gap<2s 延后，吃掉死气间隙
-  if(sOff===0 && sW>0){ const pv=x.w[sW-1]; const g=st-pv.e; if(g>=0&&g<0.20) st=pv.e; }
-  if(eOff===0 && eW<x.w.length-1){ const nx=x.w[eW+1]; const g=nx.s-et; if(g>=0&&g<2.0) et=nx.s; }
+  // snap 之后强制 sOff=eOff=0；时间直接取词起止
+  let st = sw.s;
+  let et = ew.e;
+  // 有条件边界扩展（snap 后总是落在词边界）：起点 gap<0.2s 前移，终点 gap<2s 延后，吃掉死气间隙
+  if(sW>0){ const pv=x.w[sW-1]; const g=st-pv.e; if(g>=0&&g<0.20) st=pv.e; }
+  if(eW<x.w.length-1){ const nx=x.w[eW+1]; const g=nx.s-et; if(g>=0&&g<2.0) et=nx.s; }
 
-  (pdel[idx]=pdel[idx]||[]).push({cs:pos, ce:delEnd, s:Math.round(st*1000)/1000, e:Math.round(et*1000)/1000});
+  (pdel[idx]=pdel[idx]||[]).push({cs:snappedPos, ce:snappedEnd, s:Math.round(st*1000)/1000, e:Math.round(et*1000)/1000});
   um.add(idx);
   sel.removeAllRanges(); hideSelBtn(); renderTx(); sv();
 }
