@@ -71,7 +71,10 @@ expose via: cloudflared tunnel --url http://localhost:8765
 
 ## edit-chat skill 集成（agent 用）
 
-agent 生成 review HTML 后：
+> 推荐用 `cloud-bridge/scripts/*` 三件套（PR #42 merged）：
+> `create_session.sh`、`watch_commit.sh`、`extract_commit_to_export.sh`。
+
+下面是手写完整流程供 reference（实际生产用 scripts/ 包装）：
 
 ```bash
 SESSION=$(uuidgen | tr A-Z a-z | sed 's/-//g' | cut -c1-12)
@@ -106,7 +109,6 @@ const s = require('$SDIR/state.committed.json');
 const out = {
   version: 'roughcut_v1',
   exported_at: new Date().toISOString(),
-  // 其他 fields 从 s 拷过来
   sentence_deletes: s.sentence_deletes || [],
   partial_deletes: s.partial_deletes || {},
   segments: s.segments || [],
@@ -156,9 +158,99 @@ Server appends `received_at` and writes to disk.
 - One session = one URL = one editor (no real-time collaboration)
 - cloudflared quick tunnel URLs are ephemeral; restart = new URL
 
+## 自启 setup（macOS launchd，PR #41）
+
+Mac mini 重启后，server 和 cloudflared 自动起来不用人工碰。用 user-level
+LaunchAgents 实现（不要 sudo）。
+
+### Install
+
+```bash
+cd cloud-bridge/launchd
+./install.sh
+```
+
+会做：
+
+1. `plutil -lint` 验证两份 plist
+2. 创建 `~/Library/Logs/podcastcut/`
+3. 复制两份 plist 到 `~/Library/LaunchAgents/`
+4. 对每份 plist 跑 `launchctl bootstrap gui/$(id -u) …`
+5. `launchctl kickstart -k` 立即启动
+
+### Uninstall
+
+```bash
+cd cloud-bridge/launchd
+./uninstall.sh
+```
+
+bootout + 删 plist。日志文件保留——想干净 slate 自己 `rm -rf ~/Library/Logs/podcastcut`。
+
+### Log paths
+
+| Service       | stdout                                                  | stderr                                                  |
+| ------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| cloud-bridge  | `~/Library/Logs/podcastcut/cloud-bridge.out.log`        | `~/Library/Logs/podcastcut/cloud-bridge.err.log`        |
+| cloudflared   | `~/Library/Logs/podcastcut/cloudflared.out.log`         | `~/Library/Logs/podcastcut/cloudflared.err.log`         |
+
+### Tunnel URL 提取
+
+`cloudflared tunnel --url http://localhost:8765` 每次重启印一个新的 URL。
+edit-chat skill 不应该 tail logs 自己解 —— 用：
+
+```bash
+./extract_url.sh
+```
+
+grep cloudflared 日志找最新 `*.trycloudflare.com` 写到 `cloud-bridge/current_tunnel_url.txt`。
+
+选择：
+
+- 手动跑（每次 cloudflared 重启后）
+- cron 每分钟跑一次：
+  ```cron
+  * * * * * /Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge/launchd/extract_url.sh >/dev/null 2>&1
+  ```
+- 或加一份 `StartInterval=30` 的额外 launchd plist
+
+### Homebrew prefix
+
+cloudflared plist 写死 `/opt/homebrew/bin/cloudflared`（Apple Silicon）。
+Intel Mac 上 `which cloudflared` 看一下，把 plist 里两处 `/opt/homebrew/bin` 改成
+`/usr/local/bin`，再跑 `install.sh`。
+
+node 也一样：如果不在 `/usr/local/bin/node`（nvm / fnm 常见），改
+`com.podcastcut.cloud-bridge.plist` 的 `ProgramArguments[0]`，或者建个 symlink。
+
+### Troubleshooting
+
+```bash
+# 两个 agent 都 loaded 吗
+launchctl list | grep podcastcut
+
+# 详细状态
+launchctl print gui/$(id -u)/com.podcastcut.cloud-bridge
+launchctl print gui/$(id -u)/com.podcastcut.cloudflared
+
+# 手动启停
+launchctl kickstart -k gui/$(id -u)/com.podcastcut.cloud-bridge
+launchctl kill SIGTERM gui/$(id -u)/com.podcastcut.cloudflared
+
+# tail 日志
+tail -F ~/Library/Logs/podcastcut/cloud-bridge.err.log
+tail -F ~/Library/Logs/podcastcut/cloudflared.out.log
+
+# 改 plist 后重装
+cd cloud-bridge/launchd && ./uninstall.sh && ./install.sh
+```
+
 ## Files in this dir
 
-- `server.js` — the HTTP server (~150 lines, no deps beyond node built-ins)
-- `sessions/` — per-session subdirectories (created on demand)
-- `README.md` — this file
-- `start.sh` (TODO) — launchd / pm2 wrapper for auto-restart
+- `server.js` — HTTP server（~150 行，0 npm deps）
+- `sessions/` — per-session 子目录（按需创建）
+- `README.md` — 本文件
+- `scripts/` — `create_session.sh` / `watch_commit.sh` / `extract_commit_to_export.sh`（PR #42）
+- `launchd/` — plists + install/uninstall + extract_url（PR #41）
+- `docs/named-tunnel-setup.md` — v2 固定 URL 方案（PR #43）
+- `config.yml.example` — named tunnel 配置模板（PR #43）

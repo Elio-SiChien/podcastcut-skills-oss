@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.podcastcut.cloudflared</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/cloudflared</string>
+        <string>tunnel</string>
+        <string>--url</string>
+        <string>http://localhost:8765</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/xiangli/Library/Logs/podcastcut/cloudflared.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/xiangli/Library/Logs/podcastcut/cloudflared.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

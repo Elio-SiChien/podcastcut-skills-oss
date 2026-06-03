@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.podcastcut.cloud-bridge</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>/Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge/server.js</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PORT</key>
+        <string>8765</string>
+        <key>SESSIONS_DIR</key>
+        <string>/Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge/sessions</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/xiangli/Library/Logs/podcastcut/cloud-bridge.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/xiangli/Library/Logs/podcastcut/cloud-bridge.err.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
