@@ -200,6 +200,39 @@ def get_segment_speaker(seg_start, seg_end, speaker_segments):
     return best_speaker
 
 
+def strip_elst_from_m4a(m4a_path):
+    """
+    用 MP4Box -edits 1=r 去掉 m4a 文件里 ffmpeg AAC 写入的 elst（edit list）atom。
+
+    背景见上方 m4a 编码注释。MP4Box 来自 gpac 包（`brew install gpac`）。
+    如果 MP4Box 不存在，仅打印警告 + 安装提示，不抛异常——成品文件仍可用，只是
+    Apple QuickTime / Music 上仍可能 auto-stop。
+
+    实测：MP4Box -edits 1=r 是原地重写（in-place rewrite），文件大小不变，
+    比有 elst 时音频时长 +32ms（暴露被跳过的 1024-sample priming padding，
+    一般是 1 帧近静音，听感无影响）。
+    """
+    import shutil
+    mp4box = shutil.which('MP4Box')
+    if not mp4box:
+        print('⚠️  未检测到 MP4Box，跳过 elst 去除。', file=sys.stderr)
+        print('   m4a 在 Apple QuickTime / Music 上可能在播放中 auto-stop（task #12）。', file=sys.stderr)
+        print('   修复：brew install gpac，重跑此脚本即可自动去 elst。', file=sys.stderr)
+        return False
+
+    print(f"🍎 MP4Box 去除 elst atom（Apple QuickTime/Music 兼容修复，task #12）...")
+    result = subprocess.run(
+        [mp4box, '-edits', '1=r', m4a_path],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        print(f"⚠️  MP4Box 失败（returncode={result.returncode}），跳过 elst 去除：", file=sys.stderr)
+        print(result.stderr[:500], file=sys.stderr)
+        return False
+    print("   ✅ elst 已去除，Apple 端应可正常播放")
+    return True
+
+
 def main():
     # 参数解析：支持位置参数 + --speakers-json / --no-fade 可选参数
     positional_args = []
@@ -468,8 +501,17 @@ def main():
     if out_ext in ('.m4a', '.aac'):
         # AAC 路径：bitrate floor 192k cap 320k（MP4/M4A 容器对 AAC 没有 320k 硬上限，
         # 但 256k AAC ≈ 透明级，再高边际收益小）
-        print('⚠️  WARNING: m4a/aac 输出在 Apple QuickTime/Music 上可能在播放中 auto-stop（task #12）。', file=sys.stderr)
-        print('   生产投递（podcast 发布、用户成品）请用 .mp3 输出名。仅高保真存档可用 m4a。', file=sys.stderr)
+        #
+        # task #12 option A 解法：ffmpeg AAC + mp4/ipod muxer 一定会写 elst（edit list）
+        # 跳 1024-sample priming padding。Apple QuickTime / Music 在某些 PTS 处理这个
+        # list 时会 hiccup 导致播放中 auto-stop + skip。研究发现 ffmpeg 无任何参数组合
+        # 能消除 elst（试过 movflags 各组合、bsf aac_adtstoasc、avoid_negative_ts、
+        # aac_at、强制 mp4 muxer、re-encode 路径——elst 始终存在，最多让 media_time
+        # 从 1024 变成 0 但 atom 仍在）。
+        # 解法：先 ffmpeg 编码 m4a，再 MP4Box -edits 1=r 二次重写去掉整个 edts 容器。
+        # 实测：去 elst 后，源时长比有 elst 时多 32ms（即原本被 elst 跳掉的 priming），
+        # 文件大小不变，ffmpeg/Apple 解码都正常。MP4Box 不存在时仅警告，文件仍可用
+        # （但 Apple 端可能 auto-stop）。
         out_bitrate = max(int(src_bitrate / 1000 * 1.2), 192)
         out_bitrate = min(out_bitrate, 320)
         codec_args = ['-c:a', 'aac', '-b:a', f'{out_bitrate}k']
@@ -493,6 +535,10 @@ def main():
         cmd.extend(['-ac', str(src_channels)])
     cmd.extend(['-y', output_name])
     subprocess.run(cmd, check=True)
+
+    # m4a/aac 后处理：用 MP4Box 去 elst（Apple QuickTime / Music 兼容修复）
+    if out_ext in ('.m4a', '.aac'):
+        strip_elst_from_m4a(output_name)
 
     # 清理临时文件
     os.remove(temp_wav)
