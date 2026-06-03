@@ -108,6 +108,21 @@ node "$SKILL_DIR/剪播客/scripts/generate_sentences.js" "$BASE_DIR/1_转录/su
 # → sentences.txt（格式：句索引|词索引范围|说话人|文本）
 ```
 
+### 6.5 长句标点补全（task #13 fix）
+
+阿里云 FunASR 在长 utterance 上 suppress 句中标点 → 约 10% 句子是无标点 blob，审查页 readability 差、下游 LLM 分句界模糊。这一步用 Claude CLI 给候选句子补标点：
+
+```bash
+cd "$BASE_DIR/2_分析"
+node "$SKILL_DIR/剪播客/scripts/enhance_punctuation.js"
+# 默认扫 >50 chars 且 ≤1 punct 的句子，喂 LLM 补全。
+# 会改写 subtitles_words.json + 重跑 generate_sentences.js（覆盖 sentences.txt）。
+# 因为可能新增句界（"。"），下游粗剪/精剪还没跑时调用是安全的；
+# 在已有分析的项目上跑用 --internal-only 跳过句尾终止符以保索引稳定。
+```
+
+成本：每期约 5-15 LLM 调用 × ~5s = 30-90s。失败 case（LLM 改字符无法对齐）会 skip 不破坏数据。
+
 ### 7. 写状态清单（交接给下游）
 
 ```bash
