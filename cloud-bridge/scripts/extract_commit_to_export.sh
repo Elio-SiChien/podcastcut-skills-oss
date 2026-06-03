@@ -11,6 +11,15 @@
 # page. We normalize here so downstream readers (粗剪 SKILL.md / 执行
 # scripts) don't have to special-case "did this come from cloud or local".
 #
+# A subtle but critical point — the cloud-bridge commit POST in review.html's
+# setupCloudBridge() only sends {sentence_deletes, partial_deletes, fdis,
+# rdExp}, NOT the segments[] array that doExport() builds locally. For the
+# fine stage cut_audio.py reads segments[] to know what time ranges to cut,
+# so if we just passthrough the commit blob, segments stays empty and the
+# final m4a comes out byte-identical to the input. This script reconstructs
+# segments + the active fine_edits[] from fine_analysis.json + fdis so the
+# downstream pipeline doesn't break. See task #1 in #podcastcut-testing.
+#
 # usage:
 #   bash extract_commit_to_export.sh <session> <stage>
 #
@@ -23,15 +32,10 @@
 # behaviour:
 #   - reads $SESSIONS_DIR/<session>/meta.json to find base_dir
 #   - reads $SESSIONS_DIR/<session>/state.committed.json
-#   - normalises into the expected delete_segments_* schema:
-#       version           "roughcut_v1" | "edited_v1"
-#       exported_at       now (ISO)
-#       original_duration / roughcut_duration / removed_duration
-#                         best-effort: pull from state if present, else 0
-#       segments          state.segments || []
-#       sentence_deletes  state.sentence_deletes || []
-#       partial_deletes   state.partial_deletes || {}
-#       fine_edits        present iff stage=fine AND state has it
+#   - normalises into the expected delete_segments_* schema
+#   - for stage=fine: reconstructs segments[] and fine_edits[] from
+#     base_dir/2_分析/fine_analysis.json + state.fdis (since the cloud-bridge
+#     commit POST doesn't include the doExport-computed segments)
 #   - writes to <base_dir>/2_分析/delete_segments_<filename>.json
 #     where <filename> = roughcut (for stage=roughcut)
 #                      = edited   (for stage=fine — matches the local
@@ -76,52 +80,13 @@ if [[ ! -f "$COMMIT_FILE" ]]; then
   exit 1
 fi
 
-# Delegate the actual JSON transform to node — much safer than jq for this
-# project (jq is not a hard dep anywhere else).
-OUT_PATH="$(node -e "
-const fs = require('fs');
-const path = require('path');
+# Delegate the actual JSON transform to a sibling node script — easier to
+# unit-test and keeps the shell wrapper short.
+RECONSTRUCT_JS="$SCRIPT_DIR/_reconstruct_export.js"
+if [[ ! -f "$RECONSTRUCT_JS" ]]; then
+  echo "error: missing helper $RECONSTRUCT_JS" >&2
+  exit 1
+fi
 
-const metaPath = process.argv[1];
-const commitPath = process.argv[2];
-const stage = process.argv[3];
-
-const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-const state = JSON.parse(fs.readFileSync(commitPath, 'utf8'));
-
-if (!meta.base_dir) {
-  console.error('error: meta.json has no base_dir');
-  process.exit(1);
-}
-
-const isFine = stage === 'fine';
-const filenameStage = isFine ? 'edited' : 'roughcut';
-const versionTag = isFine ? 'edited_v1' : 'roughcut_v1';
-
-const out = {
-  version: versionTag,
-  exported_at: new Date().toISOString(),
-  original_duration: Number(state.original_duration) || 0,
-  roughcut_duration: Number(state.roughcut_duration) || 0,
-  removed_duration: Number(state.removed_duration) || 0,
-  segments: Array.isArray(state.segments) ? state.segments : [],
-  sentence_deletes: Array.isArray(state.sentence_deletes) ? state.sentence_deletes : [],
-  partial_deletes: (state.partial_deletes && typeof state.partial_deletes === 'object')
-    ? state.partial_deletes : {},
-};
-
-// fine_edits only for fine stage AND only if the state actually carries it.
-// review.html's doExport() attaches fine_edits in fine stage; the commit
-// blob is just doExport's payload POSTed up, so we pass it through verbatim.
-if (isFine && Array.isArray(state.fine_edits)) {
-  out.fine_edits = state.fine_edits;
-}
-
-const outDir = path.join(meta.base_dir, '2_分析');
-fs.mkdirSync(outDir, { recursive: true });
-const outPath = path.join(outDir, 'delete_segments_' + filenameStage + '.json');
-fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
-process.stdout.write(outPath);
-" "$META_FILE" "$COMMIT_FILE" "$STAGE")"
-
+OUT_PATH="$(node "$RECONSTRUCT_JS" "$META_FILE" "$COMMIT_FILE" "$STAGE")"
 echo "$OUT_PATH"
