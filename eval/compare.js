@@ -54,6 +54,7 @@ function parseArgs(argv) {
     else if (a === '--user') out.user = argv[++i];
     else if (a === '--episode-name') out.episodeName = argv[++i];
     else if (a === '--save') out.save = true;
+    else if (a === '--format') out.format = argv[++i];
     else if (a === '-h' || a === '--help') out.help = true;
     else throw new Error(`unknown arg: ${a}`);
   }
@@ -224,6 +225,82 @@ function isoDateOnly(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
+// ---------- delivery-msg format ----------
+// 给用户成片交付时塞进 chat 的短段落。
+// 设计原则（2026-06-03 product discussion）：
+// - 只讲"AI 帮你做了什么" + agreement %（产品价值 messaging）
+// - 不讲 retention <X% 这种"误判"指标（improvement messaging 走 Stage 2 触发式）
+function buildDeliveryMsg(stats, ctx, aiJson) {
+  const totals = stats.totals;  // {total, tp, fn}
+  const TYPE_NAMES = {
+    stutter: '口吃/卡顿',
+    filler_start: '句首填充词（嗯啊呃）',
+    consecutive_filler: '连续填充词',
+    silence_merged: '衔接片段',
+    silence: '长停顿',
+    self_correction_rules: '重说纠正',
+    in_sentence_repeat: '句内重复',
+  };
+  // stats.perType[type] = {total, tp, fn}；tp = 用户接受
+  const perTypeWithDur = Object.entries(stats.perType)
+    .map(([type, s]) => ({
+      type,
+      label: TYPE_NAMES[type] || type,
+      kept: s.tp,
+      total: s.total,
+    }))
+    .filter((t) => t.kept > 0);
+
+  // 算每 type 的真实平均 duration（从 aiJson.edits）
+  const aiEdits = safeArray(aiJson.edits);
+  const durByType = {};
+  for (const e of aiEdits) {
+    const t = e.type;
+    const d = (e.deleteEnd ?? 0) - (e.deleteStart ?? 0);
+    if (!durByType[t]) durByType[t] = { sum: 0, count: 0 };
+    if (d > 0) {
+      durByType[t].sum += d;
+      durByType[t].count += 1;
+    }
+  }
+  for (const t of perTypeWithDur) {
+    const dt = durByType[t.type];
+    const avgDur = dt && dt.count ? dt.sum / dt.count : 0;
+    t.savedSec = t.kept * avgDur;
+  }
+
+  const totalSavedSec = perTypeWithDur.reduce((s, t) => s + t.savedSec, 0);
+  perTypeWithDur.sort((a, b) => b.savedSec - a.savedSec);
+
+  function fmtTime(sec) {
+    if (sec < 60) return `${sec.toFixed(0)} 秒`;
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return s > 0 ? `${m}:${s.toString().padStart(2, '0')}` : `${m} 分钟`;
+  }
+
+  const lines = ['AI 帮你做的：'];
+  const topN = perTypeWithDur.slice(0, 4);
+  for (const t of topN) {
+    lines.push(`✓ 抓了 ${t.kept} 个${t.label} = 省 ${fmtTime(t.savedSec)}`);
+  }
+  // 用户增加的部分
+  if (ctx.partialDeletesCount > 0 || ctx.sentenceDeletesCount > 0) {
+    const userAdd = [];
+    if (ctx.sentenceDeletesCount > 0) userAdd.push(`${ctx.sentenceDeletesCount} 个整句`);
+    if (ctx.partialDeletesCount > 0) userAdd.push(`${ctx.partialDeletesCount} 处细修`);
+    lines.push(`你额外加了：${userAdd.join(' + ')}`);
+  }
+  // Agreement
+  const agreementPct =
+    totals.total > 0 ? Math.round((totals.tp / totals.total) * 100) : 0;
+  lines.push('');
+  lines.push(
+    `这次你接受了我 ${agreementPct}% 的删除决策——下次继续这样剪。`
+  );
+  return lines.join('\n');
+}
+
 // ---------- main ----------
 function main() {
   let args;
@@ -260,6 +337,12 @@ function main() {
     partialDeletesCount: partialDeletes.length,
     sentenceDeletesCount: sentenceDeletes.length,
   };
+
+  if (args.format === 'delivery-msg') {
+    const msg = buildDeliveryMsg(stats, ctx, aiJson);
+    process.stdout.write(msg + '\n');
+    return; // delivery-msg 模式不写 jsonl / reports
+  }
 
   const md = buildMarkdown(stats, ctx);
   process.stdout.write(md + '\n');

@@ -24,6 +24,20 @@ What happens:
 
 Pure node, no npm deps.
 
+### Output formats
+
+| `--format` | Use | Output |
+|---|---|---|
+| (default — markdown) | Audit / dev review | Per-type retention table |
+| `delivery-msg` | edit-chat 阶段 6 自动塞进成品交付 chat | 5-7 行 "AI 帮你做的" 短段落 + agreement %（**不含**retention <X% 类信息） |
+
+`delivery-msg` 模式不写 `results.jsonl` / `reports/`——它只是 generate
+chat-friendly text。
+
+**产品设计原理**：delivery-msg 是 Tier 1 "价值 messaging"，每期都说；
+retention 低的"改进 messaging" 走 Tier 2 触发式（单期某 type < 50% 且
+N > 10 才提）。详见 `notes/2026-06-03_self-iterating-product-loop.md`。
+
 ## What the metrics mean
 
 For each AI edit type (`stutter`, `filler_start`, `silence_merged`,

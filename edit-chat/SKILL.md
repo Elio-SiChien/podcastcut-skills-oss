@@ -354,6 +354,14 @@ python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" "<name>_精剪版.m4a" ...
 # 上传到 Slock
 slock attachment upload --path "$BASE_DIR/剪播客/3_成品/<name>_trimmed.m4a" --channel <target>
 # 拿到 attachment-id，作为附件发回
+
+# 跑 eval 算成品价值 messaging（Stage 1，task #21）
+VALUE_MSG=$(node "$SKILL_DIR/eval/compare.js" \
+  --ai "$BASE_DIR/2_分析/fine_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
+  --episode-name "$EPISODE_NAME" \
+  --format delivery-msg 2>/dev/null)
+# VALUE_MSG 是多行短段落，直接塞进下面的 chat 模板
 ```
 
 ```
@@ -362,17 +370,29 @@ chat:
 
 [audio attachment: <name>_trimmed.m4a]
 
-Changelog：
-- 粗剪 5 个大段 -8 min
-- 精剪 387 个填充词 -3 min
-- 长停顿 60 个裁短 -1.5 min
-- 总时长：65 min → 52.5 min
+{VALUE_MSG}  ← 这块由 eval/compare.js --format delivery-msg 自动生成
+（示例：
+AI 帮你做的：
+✓ 抓了 112 个衔接片段 = 省 3:08
+✓ 抓了 390 个口吃/卡顿 = 省 1:47
+✓ 抓了 140 个句首填充词 = 省 44 秒
+✓ 抓了 21 个长停顿 = 省 36 秒
+你额外加了：29 个整句
 
-review HTML（可点进去看每个删除决策）：
-file:///Volumes/.../review_enhanced.html
+这次你接受了我 89% 的删除决策——下次继续这样剪。
+）
+
+总时长：65 min → 52.5 min
 
 下一期直接扔过来。
 ```
+
+> **Stage 1 价值 messaging（2026-06-03 加）**：每期成品交付都自动带这一段，让用户具象感知"AI 帮我省了多少 + 我们一致率多高"。
+> 
+> **不**在这里 surface "误判 / retention < X%" 类信息——那是 improvement messaging，走 Stage 2 触发式（单期某 type retention <50% 且 N>10 → 单独 1 句问"要不要永久关掉这个 detector"）。
+> 
+> Stage 2 还没实现；先把 Stage 1 价值 messaging 习惯立起来。
+> 详细产品设计见 `notes/2026-06-03_self-iterating-product-loop.md`。
 
 ---
 
