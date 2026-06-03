@@ -154,6 +154,17 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 3. **跑 `generate_subtitles_from_aliyun.js aliyun_funasr_transcription.json speaker_mapping.json`** → subtitles_words.json 里说话人字段是真名
 4. **跑 `generate_sentences.js`** → sentences.txt 里也是真名
 5. **切 10s audio sample** per speaker → upload via Slock attachment
+
+   用 `剪播客/scripts/extract_speaker_samples.py` —— 它从每个 speaker 最长的连续独白段里抽样（不是第一段），避开 intro 音乐和说话人交替段。两个失败模式（音乐 sample、混音 sample）在 EP20 实测撞过，详见脚本顶 docstring：
+
+   ```bash
+   python3 "$SKILL_DIR/剪播客/scripts/extract_speaker_samples.py" \
+     "$BASE_DIR/1_转录/aliyun_funasr_transcription.json" \
+     "$BASE_DIR/1_转录/audio_original.mp3" \
+     "$BASE_DIR/1_转录" \
+     --mapping "$BASE_DIR/1_转录/speaker_mapping.json"
+   # 产出 $BASE_DIR/1_转录/spk{0,1,2,...}_sample.mp3
+   ```
 6. **Chat 问用户确认**：
 
 ```
