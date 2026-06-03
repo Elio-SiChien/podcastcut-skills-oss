@@ -398,6 +398,8 @@ body.preview .sug-reason { opacity: 0; }
 .r-txt .fe::after { content: attr(data-type); font-size: 10px; vertical-align: super; margin-left: 2px; opacity: .65; font-weight: 600; }
 .r-txt .fe.dis { text-decoration: none; background: transparent; color: inherit; }
 .r-txt .fe.dis::after { opacity: .35; text-decoration: line-through; }
+/* 当前播放词高亮：用 gold-dim 暖底色 + gold-dark 描边，与 row.act 行高亮区分 */
+.r-txt .w.now-playing { background: var(--gold-dim); box-shadow: inset 0 -2px 0 var(--gold-dark); border-radius: 2px; }
 /* 句首停顿标记（incomingSilences）：silence 在感知位置显示 */
 .in-sil { display:inline-block; margin:0 6px 2px 0; padding:1px 7px; font-family:"SF Mono",monospace; font-size:11px; color:var(--gold-dark); background:var(--gold-dim); border-radius:3px; cursor:pointer; user-select:none; vertical-align:middle; border:1px dashed var(--gold-dark); }
 .in-sil:hover { background:#f0e0c0; color:var(--dark); }
@@ -701,12 +703,27 @@ function esc(t){ return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/
 function txtHtml(x){
   if(!x.w || !x.w.length) return esc(x.t);
   const full = x.w.map(w=>w.t).join('');
+  // 词→字符区间映射：用于把"非 pd/fe 的纯文本段"按词切分包裹，便于 timeupdate 高亮当前播放词
+  const wRanges=[]; { let off=0; for(const w of x.w){ const len=w.t.length; wRanges.push({cs:off, ce:off+len, s:w.s, e:w.e, t:w.t}); off+=len; } }
   const pds = pdel[x.idx] || [];
   const fes = FE.filter(f => f.idx === x.idx);
   // 合并所有区间（按 cs 排序，先到先得；overlap 罕见，导出时统一合并）
   const segs = pds.map((r,ri)=>({kind:'pd', cs:r.cs, ce:r.ce, ri}))
     .concat(fes.map(f => ({kind:'fe', cs:f.cs, ce:f.ce, type:f.type||'', key:`${x.idx}@${f.ord}`})))
     .sort((a,b) => a.cs - b.cs);
+  // 纯文本段 [from,to) 按词切分包裹：跨词时只取该词与 [from,to) 的交集。
+  // 注意 pd/fe 不在词边界对齐时，纯段可能只覆盖词的一部分——此时 data-w-s/e 仍是原词的时间。
+  function wrapPlain(from, to){
+    let out='';
+    for(const w of wRanges){
+      if(w.ce <= from) continue;
+      if(w.cs >= to) break;
+      const a=Math.max(from, w.cs), b=Math.min(to, w.ce);
+      if(a>=b) continue;
+      out += `<span class="w" data-w-s="${w.s}" data-w-e="${w.e}">${esc(full.slice(a,b))}</span>`;
+    }
+    return out;
+  }
   let html='', i=0;
   while(i < full.length){
     const hit = segs.find(s => i >= s.cs && i < s.ce);
@@ -722,7 +739,7 @@ function txtHtml(x){
     } else {
       const starts = segs.filter(s => s.cs > i).map(s => s.cs);
       const nx = starts.length ? Math.min(...starts) : full.length;
-      html += esc(full.slice(i, nx));
+      html += wrapPlain(i, nx);
       i = nx;
     }
   }
@@ -1336,6 +1353,8 @@ function updatePlayerDuration() {
   }
 }
 
+// 当前播放词高亮：跨 timeupdate 复用上一次高亮的 span，避免每次 querySelector
+let lastNowPlayingEl = null;
 au.addEventListener('timeupdate',()=>{
   const t=au.currentTime,d=au.duration||0;
 
@@ -1357,6 +1376,24 @@ au.addEventListener('timeupdate',()=>{
     document.querySelectorAll('.row.act').forEach(el=>el.classList.remove('act'));
     const r=document.getElementById('r'+cur.idx);
     if(r){r.classList.add('act');const rc=r.getBoundingClientRect();if(rc.top<60||rc.bottom>window.innerHeight-90)r.scrollIntoView({behavior:'smooth',block:'center'})}
+  }
+  // 当前词高亮（仅在当前句行存在 .w 词 span 时）
+  if(cur){
+    const row=document.getElementById('r'+cur.idx);
+    if(row){
+      const ws=row.querySelectorAll('.r-txt .w');
+      // 线性扫描即可（每句词数 < 100），命中第一个 [s,e) 包含 t 的词
+      let hit=null;
+      for(let k=0;k<ws.length;k++){
+        const ws0=parseFloat(ws[k].dataset.wS), we0=parseFloat(ws[k].dataset.wE);
+        if(t>=ws0 && t<we0){ hit=ws[k]; break; }
+      }
+      if(hit !== lastNowPlayingEl){
+        if(lastNowPlayingEl) lastNowPlayingEl.classList.remove('now-playing');
+        if(hit) hit.classList.add('now-playing');
+        lastNowPlayingEl = hit;
+      }
+    }
   }
   updateNav(t);
   // 删除段跳过 → 委托给陷阱 6 的统一逻辑 (preview-only nudge + lookahead + mute-seek-fade)
