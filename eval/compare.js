@@ -53,6 +53,7 @@ function parseArgs(argv) {
     if (a === '--ai') out.ai = argv[++i];
     else if (a === '--user') out.user = argv[++i];
     else if (a === '--episode-name') out.episodeName = argv[++i];
+    else if (a === '--profile') out.profileName = argv[++i];
     else if (a === '--save') out.save = true;
     else if (a === '--format') out.format = argv[++i];
     else if (a === '-h' || a === '--help') out.help = true;
@@ -63,7 +64,8 @@ function parseArgs(argv) {
 
 function usage() {
   process.stderr.write(
-    'Usage: node eval/compare.js --ai <fine_analysis.json> --user <delete_segments_edited.json> [--episode-name <name>] [--save]\n'
+    'Usage: node eval/compare.js --ai <fine_analysis.json> --user <delete_segments_edited.json>\n' +
+    '                            [--episode-name <name>] [--profile <name>] [--save] [--format delivery-msg]\n'
   );
 }
 
@@ -316,6 +318,20 @@ function main() {
     process.exit(args.help ? 0 : 2);
   }
   const episodeName = args.episodeName || path.basename(path.dirname(args.ai));
+  // Profile name: prefer --profile, fall back to reading BASE_DIR/profile.json
+  // (derived as the parent of "2_分析/" — which is where fine_analysis.json lives).
+  // Used by eval/check_detector_overrides.js to group episodes per podcast.
+  let profileName = args.profileName || null;
+  if (!profileName) {
+    try {
+      const baseDir = path.resolve(path.dirname(args.ai), '..');
+      const profilePath = path.join(baseDir, 'profile.json');
+      if (fs.existsSync(profilePath)) {
+        const prof = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+        if (prof && typeof prof.name === 'string') profileName = prof.name;
+      }
+    } catch { /* profile.json optional — Stage 2 will silently skip per-podcast aggregation */ }
+  }
 
   const aiJson = readJson(args.ai);
   const userJson = readJson(args.user);
@@ -352,6 +368,7 @@ function main() {
   const resultsPath = path.join(evalDir, 'results.jsonl');
   const record = {
     episode_name: episodeName,
+    profile_name: profileName,
     timestamp: ctx.timestamp,
     ai_path: args.ai,
     user_path: args.user,

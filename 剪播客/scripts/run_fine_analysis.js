@@ -577,6 +577,44 @@ for (const e of edits) {
   }
 }
 
+// Apply per-podcast detector overrides (Stage 2 self-iterating loop).
+// profile.json may carry `detector_overrides: {<type>: {enabled: false, ...}}`
+// — drop edits of any disabled type before sorting/indexing. The override
+// is set in chat by the agent after eval/check_detector_overrides.js
+// triggers a Tier 2 prompt and the user agrees to "关掉".
+{
+  const profilePath = path.join(analysisDir, '..', 'profile.json');
+  if (fs.existsSync(profilePath)) {
+    try {
+      const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+      const overrides = (profile && profile.detector_overrides) || {};
+      const disabledTypes = new Set(
+        Object.entries(overrides)
+          .filter(([, v]) => v && v.enabled === false)
+          .map(([k]) => k)
+      );
+      if (disabledTypes.size > 0) {
+        const before = edits.length;
+        const dropped = {};
+        for (const t of disabledTypes) dropped[t] = 0;
+        for (let i = edits.length - 1; i >= 0; i--) {
+          if (disabledTypes.has(edits[i].type)) {
+            dropped[edits[i].type]++;
+            edits.splice(i, 1);
+          }
+        }
+        const droppedDesc = Object.entries(dropped)
+          .filter(([, n]) => n > 0)
+          .map(([t, n]) => `${t}:${n}`)
+          .join(', ');
+        console.error(`[run_fine_analysis] detector_overrides 跳过 ${before - edits.length} 条 (${droppedDesc})`);
+      }
+    } catch (e) {
+      console.error(`[run_fine_analysis] profile.json 解析失败 (${e.message})，忽略 overrides`);
+    }
+  }
+}
+
 // Sort edits by time
 edits.sort((a, b) => a.deleteStart - b.deleteStart);
 edits.forEach((e, i) => e.idx = i);

@@ -101,9 +101,9 @@ The product positioning is: **"My editor assistant is learning my style"** — n
 
 | Stage | Scope | PR / status |
 |---|---|---|
-| Stage 1 | Tier 1 value messaging in delivery (`compare.js --format delivery-msg` + edit-chat 阶段 6 wiring) | This PR |
-| Stage 2 | Tier 2 improvement triggers + `detector_overrides.json` schema | Deferred 2-3 episodes (need real threshold data) |
-| Stage 3 | Tier 3 deep retro dashboard + multi-episode trends | v2 (after Stage 2 ships) |
+| Stage 1 | Tier 1 value messaging in delivery (`compare.js --format delivery-msg` + edit-chat 阶段 6 wiring) | Shipped PR #46 |
+| Stage 2 | Tier 2 improvement triggers (`eval/check_detector_overrides.js`) + `profile.detector_overrides` schema + `run_fine_analysis.js` loads overrides | Shipped 2026-06-03 (3-episode trigger unit per @xiangge-li). Defaults: ≥3 episodes / avg retention <70% / ≥5 firings/episode |
+| Stage 3 | Tier 3 deep retro dashboard + multi-episode trends | v2 (after a few real Stage 2 triggers land) |
 
 ## Marketing soundbite candidates
 

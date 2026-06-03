@@ -379,13 +379,46 @@ slock attachment upload --path "$BASE_DIR/剪播客/3_成品/<name>_trimmed.m4a"
 # 拿到 attachment-id，作为附件发回
 
 # 跑 eval 算成品价值 messaging（Stage 1，task #21）
+# 同时写一条带 profile_name 的记录到 results.jsonl，给 Stage 2 跨期聚合用
+PROFILE_NAME=$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$BASE_DIR/profile.json','utf8')).name||'')")
 VALUE_MSG=$(node "$SKILL_DIR/eval/compare.js" \
   --ai "$BASE_DIR/2_分析/fine_analysis.json" \
   --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
   --episode-name "$EPISODE_NAME" \
+  --profile "$PROFILE_NAME" \
   --format delivery-msg 2>/dev/null)
-# VALUE_MSG 是多行短段落，直接塞进下面的 chat 模板
+# delivery-msg 模式不写 jsonl —— 单独再跑一次正常模式 append 到 results.jsonl
+node "$SKILL_DIR/eval/compare.js" \
+  --ai "$BASE_DIR/2_分析/fine_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
+  --episode-name "$EPISODE_NAME" \
+  --profile "$PROFILE_NAME" \
+  --save >/dev/null
+
+# Stage 2：跨期 detector 性能检查
+# 攒到 ≥3 期同 profile 之后，如果某 detector retention <70% → 生成 Tier 2 提示
+# 给 VALUE_MSG 末尾追加一行（友好口吻，"AI 在学你的播客节奏"，不是"AI 错了"）。
+TIER2_MSG=$(node "$SKILL_DIR/eval/check_detector_overrides.js" \
+  --profile "$PROFILE_NAME" 2>/dev/null \
+  | node -e "
+    let buf=''; process.stdin.on('data',d=>buf+=d); process.stdin.on('end',()=>{
+      try { const j=JSON.parse(buf);
+        if (j.triggers && j.triggers[0]) process.stdout.write('\n\n' + j.triggers[0].suggested_message);
+      } catch{}
+    });")
+# 直接拼到 VALUE_MSG 末尾即可（无 trigger 时 TIER2_MSG 为空，不影响）
+VALUE_MSG="${VALUE_MSG}${TIER2_MSG}"
 ```
+
+如果 Tier 2 触发：等用户回复后处理三种 case，写回 `profiles/<name>.json`：
+
+| 用户回复 | 改动 |
+|---|---|
+| 「关掉」/"yes" | 在 profile 的 `detector_overrides` 加 `{<detector>: {enabled: false, reason, applied_at, evidence_episodes, evidence_retention}}` |
+| 「再观察几期」 | 在 profile 的 `detector_check_history` 加 `{<detector>: {last_user_action: '再观察', cooldown_until_episode_count: 当前期数+5}}` |
+| 「忽略」 | 在 profile 的 `detector_check_history` 加 `{<detector>: {last_user_action: '忽略'}}`（永久不再问） |
+
+下次 run_fine_analysis.js 跑这个 profile 时自动读 `detector_overrides`，跳过 `enabled: false` 的类型。check_detector_overrides.js 跑下个 episode 时自动读 `detector_check_history` 决定要不要冷却或跳过。
 
 ```
 chat:
@@ -412,10 +445,9 @@ AI 帮你做的：
 
 > **Stage 1 价值 messaging（2026-06-03 加）**：每期成品交付都自动带这一段，让用户具象感知"AI 帮我省了多少 + 我们一致率多高"。
 > 
-> **不**在这里 surface "误判 / retention < X%" 类信息——那是 improvement messaging，走 Stage 2 触发式（单期某 type retention <50% 且 N>10 → 单独 1 句问"要不要永久关掉这个 detector"）。
+> **Stage 2 跨期 detector 触发（2026-06-03 加）**：当同 profile ≥3 期某 detector 平均 retention <70% 且每期触发数 ≥5 → 自动在 VALUE_MSG 末尾追加 1 行 Tier 2 prompt（"我注意到你 podcast 节奏里这类信号可能不是卡顿，要不要永久关掉？"）。用户回复后写回 `profile.detector_overrides` 或 `profile.detector_check_history`。后续 `run_fine_analysis.js` 自动读 overrides 跳过禁用类型。
 > 
-> Stage 2 还没实现；先把 Stage 1 价值 messaging 习惯立起来。
-> 详细产品设计见 `notes/2026-06-03_self-iterating-product-loop.md`。
+> 详细产品设计见 `notes/2026-06-03_self-iterating-product-loop.md`。阈值可调（`eval/check_detector_overrides.js --threshold` / `--episodes` / `--min-total-per-episode`），用户使用后再 empirical 调整。
 
 ---
 
