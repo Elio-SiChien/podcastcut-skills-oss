@@ -162,5 +162,5 @@ node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" fine appro
 
 下游 `/podcastcut-执行` 从 `output/.current_project` 读项目，吃 `delete_segments_edited.json` + `audio_original.*` 出片。
 
-## 反馈学习 / 评估（可选闭环）
-精剪导出后，审查页"导出 AI 反馈"(蓝色) → `ai_feedback_*.json`，可经 `analyze_feedback.js` / `apply_feedback_to_rules.js` 回写用户偏好，并由 `calculate_eval_metrics.js` 记 precision/recall 趋势。此闭环仍由编排器（剪播客）阶段2.3/2.4 承载，非本单元必跑步骤。
+## 反馈学习 / 评估（v2，不在 MVP）
+chat 服务 MVP 不做偏好自学习闭环（原 UserManager 反馈链已移除）。审查页"导出 AI 反馈"按钮的产物仍会写文件，但当前没有下游消费者。若要恢复闭环，应改成写回 `profiles/<name>.json`，由 onboarding-chat 处理。

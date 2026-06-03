@@ -453,15 +453,23 @@ def main():
             src_channels = int(line.split('=')[1].strip())
 
     # 按输出后缀选编码：
-    #   .m4a / .aac  → AAC 直出（如果源已是 AAC，避免二次 codec 家族转换，保高频细节）
-    #   .mp3 (默认) → libmp3lame（floor 192k，cap 320k）
-    # 历史背景：之前只支持 MP3 输出，源是 AAC 126k 时听感"加了细微 hiss"。
-    # 加 AAC 路径后用户可以传 *.m4a 输出名得到真正的"零额外损失"成品。
+    #   .mp3 (默认 + 推荐) → libmp3lame（floor 192k，cap 320k）
+    #   .m4a / .aac  → AAC 直出（opt-in 高保真路径）
+    #
+    # ⚠️ Apple 兼容警告（2026-06-02 task #12 发现）：
+    # ffmpeg AAC 编码会写 elst（edit list）atom 跳 1024-sample priming padding。
+    # Apple QuickTime / Music 在某些 PTS 处理这个 list 时会 hiccup 导致播放中
+    # auto-stop + skip。Chrome / VLC 不受影响。podcast 用户大多在 Apple 设备
+    # 听，故 m4a 输出**不适合 production**——仅做高保真存档或非 Apple 平台投递。
+    # 实测 case：meeting_02 49.2 min m4a 在 QuickTime + Apple Music 都在 cut
+    # time 39s 和 20.2 min 多处 auto-stop；同 cut 的 MP3 版完全正常。
     out_ext = os.path.splitext(output_name)[1].lower()
 
     if out_ext in ('.m4a', '.aac'):
         # AAC 路径：bitrate floor 192k cap 320k（MP4/M4A 容器对 AAC 没有 320k 硬上限，
         # 但 256k AAC ≈ 透明级，再高边际收益小）
+        print('⚠️  WARNING: m4a/aac 输出在 Apple QuickTime/Music 上可能在播放中 auto-stop（task #12）。', file=sys.stderr)
+        print('   生产投递（podcast 发布、用户成品）请用 .mp3 输出名。仅高保真存档可用 m4a。', file=sys.stderr)
         out_bitrate = max(int(src_bitrate / 1000 * 1.2), 192)
         out_bitrate = min(out_bitrate, 320)
         codec_args = ['-c:a', 'aac', '-b:a', f'{out_bitrate}k']

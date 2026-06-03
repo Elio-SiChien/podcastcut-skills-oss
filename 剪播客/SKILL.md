@@ -84,28 +84,13 @@ output/
 
 ## 编排步骤
 
-### 0. Onboarding 前置门（首跑 / 换用户时）
+### 0. Onboarding 前置门（首跑 / 换播客时）
 
-**这是进入流程前的门，不是流水线阶段。** 用户说"剪播客"后先确认用户身份与偏好：
+**这是进入流程前的门，不是流水线阶段。** 入口在 chat 服务的 onboarding-chat skill：
 
-```bash
-cd "$SKILL_DIR/剪播客"
-USER_ID="${PODCASTCUT_USER:-default}"
-node scripts/user_manager.js list                 # 列出已有用户
-node scripts/user_manager.js check "$USER_ID"     # 检查是否存在 + 是否已配置
-```
-
-- **已有且已配置** → 一句话确认："已加载你的偏好。今天处理什么音频？几个说话人？"（老用户回访），进入步骤 1。
-- **新用户 / 未配置** → 先建档，再进流程：
-  ```bash
-  node scripts/user_manager.js create "$USER_ID"   # 从 default/ 克隆
-  ```
-  **建档对话（1-2 轮）**：
-  - **路径 A（有往期样本，最精准）**：转录"剪辑前+剪辑后"两版 → `analyze_editing_samples.py` → `generate_rule_overrides.js <userId>` → 呈现偏好表让用户确认 → 存 `editing_rules/`。
-  - **路径 B（无样本）**：一条消息问全：① 播客类型（受众、目的）② 理想时长 + 激进度（conservative 10-20% / moderate 20-35% / aggressive 35-50%）③ 特殊需求（如保留语气词、大力删卡顿）。未答用保守默认。
-  - 后期偏好延迟到首次用后期单元时再问。
-
-> 偏好位置 `用户偏好/<userId>/`（gitignored）。改偏好：`user_manager.js prefs/rules <id>`，或直接说"更新我的默认时长为90分钟"。运行时带 `PODCASTCUT_USER=<id>`。
+- **chat 服务模式（主路径）**：用户在 Slock DM 里第一次发音频 → 自动跑 `podcastcut-onboarding-chat` 收集 7 字段 → 写 `podcastcut-skills/profiles/<播客名>.json` → `podcastcut-edit-chat` 启动每期剪辑时挑好 profile，把它复制/链接到 `BASE_DIR/profile.json`。
+- profile.json schema 见 `onboarding-chat/SKILL.md § "profile JSON schema"`，关键字段：`name / tone / hosts / default_target_min / default_aggressiveness / glossary`。
+- 改 profile：chat 里说"改 XXX"由 `onboarding-chat` 处理；或直接编辑 `profiles/<name>.json`。
 
 ### 1. 定位项目 / 续跑判定
 
@@ -128,9 +113,9 @@ PROJECT=$(cat "$SKILL_DIR/output/.current_project" 2>/dev/null)
 | `roughcut` | 调 **/podcastcut-粗剪** → 置 `awaiting_review`。**停**：打开 `review_roughcut.html`，等用户审核、导出 `delete_segments_roughcut.json` 回 `2_分析/`、口头确认。|
 | `fine` | 调 **/podcastcut-精剪** → 置 `awaiting_review`。**停**：打开 `review_enhanced.html`，等用户审核、导出 `delete_segments_edited.json`、确认。|
 | `execute` | 调 **/podcastcut-执行**（吃 `delete_segments_edited.json`，无则回退 roughcut）。完成→进可选步。|
-| `qa` | 若 `preferences.yaml` 的 `workflow_automation.auto_qa_enabled` → 调 **/podcastcut-质检**；否则 `skipped`。发现问题→提示用户回精剪调整（见终审）。|
+| `qa` | 默认调 **/podcastcut-质检**；否则 `skipped`（由 chat 用户显式跳过）。发现问题→提示用户回精剪调整（见终审）。|
 | `audio_quality` | 用户需要则调 **/podcastcut-音质处理**（按说话人降噪/去回声 + 响度标准化 -16 LUFS）；否则 `skipped`。|
-| `post` | 若 `workflow_automation.auto_post_production` → 调 **/podcastcut-后期**（首次先问后期偏好存 `post_production.yaml`）；否则 `skipped`。|
+| `post` | chat 用户选择启用则调 **/podcastcut-后期**；否则 `skipped`。|
 
 **用户确认审核后**，把该步标 `approved` 再继续：
 ```bash
@@ -139,12 +124,11 @@ node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" <roughcut|
 ```
 跳过可选步：`set-stage "$BASE_DIR" <qa|audio_quality|post> skipped`。
 
-**终审（可选，质检发现问题时）**：生成 `review_final.html`（`generate_review_final.js`，内嵌成品播放器 + 质检问题列表 + 可点时间戳），用户终审；"需重剪"→回 `fine`/`audio_quality` 调整；"通过"→`user_manager.js appendEpisode` 记 `episode_history.json`。
+**终审（可选，质检发现问题时）**：生成 `review_final.html`（`generate_review_final.js`，内嵌成品播放器 + 质检问题列表 + 可点时间戳），用户终审；"需重剪"→回 `fine`/`audio_quality` 调整；"通过"→交付（chat 服务把成品 attachment 发回用户）。
 
-## 反馈学习 / 评估（可选闭环）
+## 反馈学习 / 评估（v2，不在 MVP）
 
-审查页"导出 AI 反馈"(蓝色) → `ai_feedback_*.json`，可回写用户偏好（`analyze_feedback.js`/`apply_feedback_to_rules.js`）并记 precision/recall 趋势（`calculate_eval_metrics.js`）。
-**详见 [`参考/反馈学习与评估.md`](参考/反馈学习与评估.md)**（原 2.3/2.4 + 内建自进化说明）。
+chat 服务 MVP 不做偏好自学习闭环（原 UserManager 反馈链已移除）。如要重新做，应该在 `profiles/<name>.json` 上加 update 逻辑，由 onboarding-chat 处理。审查页"导出 AI 反馈"按钮的产物仍会写文件，但当前没有下游消费者。
 
 ## 参考资料（从编排器拆出，需要时查阅）
 

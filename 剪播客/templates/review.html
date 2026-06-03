@@ -914,7 +914,19 @@ function delSel(){
 
   // 精确字符偏移：从 r-txt 起点到选区起点的文本长度（不依赖 indexOf，避免同字误匹配）
   const pre=document.createRange(); pre.setStart(txt,0); pre.setEnd(range.startContainer, range.startOffset);
-  const pos=pre.toString().length;
+  // Bug D fix (2026-06-02)：.r-txt 起首可能有 in-sil 静音 chip（"⏸ 1s"，多 ~4 chars）；
+  // pre.toString() 包含 chip 文本，但 full 只 join word.t——pos 会被 chip 文本"灌水"，
+  // 后续 word mapping 找不到匹配（sW=null），delSel 默默 early-return → 用户点删除没反应。
+  // 修：扣掉 selection start 之前所有 .in-sil chip 的文本长度。
+  // （chip 都是 prepend 在 r-txt 开头，不会嵌入文本中间。reasonTag 在末尾，不影响 pos。）
+  let prefixIncLen = 0;
+  txt.querySelectorAll('.in-sil').forEach(el => {
+    // chip 必须在 selection start 之前才扣
+    if (range.startContainer.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) {
+      prefixIncLen += el.textContent.length;
+    }
+  });
+  const pos=pre.toString().length - prefixIncLen;
   const wt=x.w.map(w=>w.t); const full=wt.join('');
   const delEnd=Math.min(pos+selText.length, full.length);
   if(pos<0 || delEnd<=pos){ hideSelBtn(); return; }
@@ -960,6 +972,35 @@ function invalidateSkipRanges(){
 }
 
 // 收集所有原始待删 ranges，第 4 元素标 kind ('sil' 表纯静音类，不做边界 nudge)
+// Bug B fix (2026-06-02)：silence_merged 是补间隙的辅助删除，依赖相邻 content edit 存在。
+// 用户 toggle restore（句子或单个 FE）后若使其范围内出现"未被任何活跃 delete 覆盖的 kept word"，
+// 该 silence_merged 即为孤儿——必须 drop。前一版（PR #22）在 merge_llm_fine.js 加了
+// dependsOn 字段意图做这件事，但 (a) 此处从未读 dependsOn (b) dependsOn 里的 idx 在
+// merge 末尾 reindex 后变成野指针。所以这里直接扫 actualWords 判 kept，鲁棒不依赖外部数据。
+function isSilenceMergedOrphan(f){
+  // f.s, f.e 是 silence_merged 的时间范围；扫所有句子里时间落在 [f.s, f.e] 内的词，
+  // 任一非删除句的词若不被某个活跃 FE delete 覆盖且不被 sent-level delete 覆盖 → 孤儿
+  for(const sent of S){
+    if(del.has(sent.idx)) continue;
+    if(!sent.w) continue;
+    if(sent.e < f.s || sent.s > f.e) continue;
+    for(const w of sent.w){
+      if(w.s < f.s || w.e > f.e) continue;
+      // word 落在 silence_merged 内：检查它是否被某活跃 FE 删除
+      let covered=false;
+      for(const g of FE){
+        if(g===f) continue;
+        if(g.type==='silence' || g.type==='silence_merged') continue;
+        if(fdis.has(`${g.idx}@${g.ord}`)) continue;
+        if(del.has(g.idx)) continue;
+        if(w.s >= g.s - 0.005 && w.e <= g.e + 0.005){ covered=true; break; }
+      }
+      if(!covered) return true;  // 找到 kept word → orphan
+    }
+  }
+  return false;
+}
+
 function collectActiveRanges(){
   const out=[];
   S.forEach(x=>{ if(del.has(x.idx)) out.push([x.s,x.e,0,'sent']); });
@@ -968,6 +1009,8 @@ function collectActiveRanges(){
     if(fdis.has(`${f.idx}@${f.ord}`))return;
     if(del.has(f.idx))return;
     const isSil=(f.type==='silence'||f.type==='silence_merged');
+    // Bug B fix: orphaned silence_merged（用户 restore 后无邻居）跳过
+    if(f.type==='silence_merged' && isSilenceMergedOrphan(f)) return;
     out.push([f.s,f.e,0,isSil?'sil':'fe']);
   });
   return out;
@@ -1314,8 +1357,15 @@ au.addEventListener('timeupdate',()=>{
 // ===== EXPORT =====
 // 启用的 AI 精剪标的时间段（fdis 禁用、del 已整句删的跳过）
 function feRanges(){
+  // Bug B fix (2026-06-02)：与 collectActiveRanges() 保持一致——
+  // 孤儿 silence_merged 也要从 export 里 drop，否则 cut 还是把用户 restore 的内容删了。
   const out=[];
-  FE.forEach(f=>{ if(fdis.has(`${f.idx}@${f.ord}`)) return; if(del.has(f.idx)) return; out.push([f.s,f.e]); });
+  FE.forEach(f=>{
+    if(fdis.has(`${f.idx}@${f.ord}`)) return;
+    if(del.has(f.idx)) return;
+    if(f.type==='silence_merged' && isSilenceMergedOrphan(f)) return;
+    out.push([f.s,f.e]);
+  });
   return out;
 }
 

@@ -1,0 +1,13 @@
+# profiles 目录
+
+存 chat 服务 onboarding 收集的每档播客 profile：
+
+```
+profiles/
+  <播客名>.json
+```
+
+schema 见 `../onboarding-chat/SKILL.md` § "profile JSON schema"。
+
+profile 文件由 `podcastcut-onboarding-chat` skill 写入，
+由 `podcastcut-edit-chat` skill 在每次剪辑时读取。

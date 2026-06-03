@@ -677,17 +677,22 @@ for (let i = 1; i < keptWords.length; i++) {
       }
     }
 
-    // 【陷阱 32/42】silence_merged 必须记录 dependsOn（引起间隙的 content edit idx）。
-    // 用户在审查稿中禁用 content edit 时，collectActiveRanges() 会检查 dependsOn
-    // 并自动抑制关联的 silence_merged。缺少 dependsOn 会导致恢复句子后仍被删。
+    // Bug B fix (2026-06-02)：PR #22 给 silence_merged 加过 dependsOn 字段，意图让
+    // 审查页在禁用相邻 content edit 时自动抑制 silence_merged。但实际上：
+    //   1. review.html 模板 collectActiveRanges() 从未读 dependsOn（注释撒谎）
+    //   2. 这里存的 e.idx 在后续 merged.forEach((e,i) => e.idx = i) 重排时变成野指针
+    // 修复策略：审查页改用更鲁棒的 kept-word check（见 templates/review.html
+    // isSilenceMergedOrphan()）——直接扫 silence_merged 范围内是否有未被覆盖的 kept word。
+    // 不再依赖 dependsOn，但保留字段以备 audit 用（用 type@start 这种稳定 key）。
+
+    // 用稳定 key（type@deleteStart）记录 deps，方便事后 audit。审查页不依赖此字段。
     const deps = [];
     merged.forEach(e => {
       if (e.type === 'silence' || e.type === 'silence_merged') return;
       const eStart = e.deleteStart ?? e.ds ?? 0;
       const eEnd = e.deleteEnd ?? e.de ?? 0;
-      // Check if this content edit is near/overlapping the gap
       if (eEnd >= trimStart - 1.0 && eStart <= trimEnd + 1.0) {
-        if (e.idx !== undefined) deps.push(e.idx);
+        deps.push(`${e.type}@${eStart.toFixed(3)}`);
       }
     });
 
@@ -698,7 +703,7 @@ for (let i = 1; i < keptWords.length; i++) {
       deleteEnd: trimEnd,
       duration: trimDur,
       reason: `删除合并后间隙${gap.toFixed(2)}s→保留${SILENCE_THRESHOLD}s`,
-      dependsOn: deps.length > 0 ? deps : undefined
+      dependsOnAudit: deps.length > 0 ? deps : undefined
     });
   }
 }

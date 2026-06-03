@@ -14,7 +14,7 @@ output: 2_分析/semantic_deep_analysis.json、review_roughcut.html、(用户)de
         project.json(roughcut=awaiting_review)
 pos: pipeline 第二步；上游=转录，下游=/podcastcut-精剪
 
-架构守护者：generate_review.js / 模板 review.html / user_manager.js 暂在 剪播客/scripts(templates)。
+架构守护者：generate_review.js / 模板 review.html 暂在 剪播客/scripts(templates)。
 **模板与精剪共用**：精剪单元也调本生成器（额外传 --fine 和 --roughcut 激活精剪态，渲染 AI 标 + 折叠粗剪整删段），
 输出叫 review_enhanced.html 以区分两阶段。改本模板前先想想对精剪页有没有影响。
 未来建 _shared/ 时统一迁移并更新引用。
@@ -35,7 +35,7 @@ pos: pipeline 第二步；上游=转录，下游=/podcastcut-精剪
 - 审查页模板用占位符注入（`__SENTENCES_DATA__` 等），生成后必须校验**无样例残留**（不应出现 `雨林/潘潘/阿司` 等示例说话人）。
 
 ## 脚本位置
-`$SKILL_DIR/剪播客/scripts/`（generate_review.js、user_manager.js）、模板 `$SKILL_DIR/剪播客/templates/review.html`。
+`$SKILL_DIR/剪播客/scripts/generate_review.js`、模板 `$SKILL_DIR/剪播客/templates/review.html`。
 
 ---
 
@@ -51,29 +51,46 @@ node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" roughcut i
 ```
 > 上游契约：`2_分析/sentences.txt`、`1_转录/subtitles_words.json`、`1_转录/audio_seekable.mp3` 应已存在（转录单元产出）。缺失则先跑 `/podcastcut-转录`。
 
-### 1. 加载用户偏好与规则（激进度 / 类型开关）
+### 1. 加载播客 profile（激进度 / 调性 / glossary）
 
 ```javascript
-const UserManager = require('$SKILL_DIR/剪播客/scripts/user_manager');
-const prefs = UserManager.loadPreferences(USER_ID);
-const rules = UserManager.loadEditingRules(USER_ID);
-// 优先级：editing_rules.user_overrides.content_analysis > prefs.content_analysis > 基础规则默认
+// chat 服务下发的播客 profile（onboarding-chat skill 生成）
+// 路径：podcastcut-skills/profiles/<播客名>.json，由 edit-chat 启动时挑好后传入 BASE_DIR/profile.json
+const profile = require(`${BASE_DIR}/profile.json`);
+// 字段：name / tone / hosts / default_target_min / default_aggressiveness / glossary
+//      （schema 见 onboarding-chat/SKILL.md § "profile JSON schema"）
 ```
-- 按 `prefs.content_analysis.detect_types` 决定启用哪些删除类型
-- 按 `prefs.duration.aggressiveness` 或 `rules.user_overrides.content_analysis.aggressiveness` 决定激进度
+- `profile.default_aggressiveness`（保守/适中/激进）决定删减阈值
+- `profile.tone` 拼进 LLM system prompt，影响段落判定风格
+- `profile.glossary` 中的术语在 AI 段落分析里"拒删"（保护专有名词所在句）
+- `_debrief.json` 里 `must_keep` 段进硬保护；`privacy` 段优先标 delete
 
 ### 2. 段落级 AI 分析 → `semantic_deep_analysis.json`
 
 > 方法论详见 `基础剪辑规则/10-内容分析方法论.md`。采用**两级分析**：先段落级扫描标记大块删除区间，再对边界逐句微调。
 
+**Profile / debrief 注入**（这一步是 LLM 调用，agent 自己读 SKILL.md 当 prompt 跑，所以"喂"profile = 在分析过程中显式参考下列字段）：
+
+| Profile / debrief 字段 | 喂进 LLM 的方式 |
+|---|---|
+| `profile.tone` | 段落级判定时**作为风格基线**："这档播客调性：『{tone}』。这意味着自然停顿、笑声、轻闲聊可能是节目特色，标 delete 前要确认它跟调性是否冲突。" |
+| `profile.default_aggressiveness`（保守/适中/激进） | 决定 `suggest_delete` 的阈值。保守：只标 100% 确定的；适中：含信息密度低；激进：含跑题闲聊和细枝末节展开。**目标删除比例**：保守 10-20% / 适中 20-35% / 激进 35-50%（用作 LLM 自检 anchor） |
+| `profile.glossary` | **"拒删名词"列表**：含 glossary 词的句子默认不进 delete，且避免在 glossary 词所在句中切边界（防止切断专有名词上下文） |
+| `profile.default_target_min` | 目标时长 anchor（覆盖 fallback 90 min） |
+| `_debrief.json` 里 `must_keep`（用户钦定必留段） | **硬保护**：覆盖到的句子强制 `keep`，即使匹配 6 种删除类型 |
+| `_debrief.json` 里 `privacy`（用户标的隐私段） | 优先标 `delete` type=`privacy`，无视激进度阈值 |
+| `_debrief.json` 里 `incidents`（录制意外） | 提示 LLM 重点扫描 tech_debug 段，把意外段一并打到 tech_debug 块里 |
+| `_debrief.json` 里 `smoothness`（顺畅 / 还行 / 磕磕绊绊） | "磕磕绊绊"→ 提示更多 self_correction 段落；"顺畅"→ 减少误标 |
+
 **流程**：
 1. 通读 `2_分析/sentences.txt` 全文，划分话题段落
-2. 按用户 `detect_types` 开关识别启用的删除类型（见下表）
-3. 计算各块时长，对比目标时长缺口
-4. 如仍需删减，按激进度识别信息密度低的段落 → `delete`
-5. **质量优化扫描（始终执行，即使无时长缺口）**：扫描啰嗦重复/过度展开/信息密度低/弱相关细节 → `suggest_delete`
-6. 微调每个删除块的边界切点
-7. 写出 `2_分析/semantic_deep_analysis.json`
+2. **先盖硬规则**：把 `_debrief.must_keep` 句子标 `keep`、`_debrief.privacy` 段标 `delete`
+3. 按 6 种基础类型（见下表）识别确定性删除
+4. 计算各块时长，对比 `profile.default_target_min`
+5. 如仍需删减，按 `profile.default_aggressiveness` 阈值识别信息密度低的段落 → `delete`
+6. **质量优化扫描**（始终执行）：扫描啰嗦重复/过度展开/弱相关细节 → `suggest_delete`，但 glossary 词所在句不进
+7. 微调每个删除块的边界切点（避免在 glossary 词上切）
+8. 写出 `2_分析/semantic_deep_analysis.json`
 
 **6 种删除类型**：
 
