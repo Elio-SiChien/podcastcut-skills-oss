@@ -48,12 +48,21 @@ URL 在 cloudflared 重启后会变（quick tunnel 是 ephemeral）。
 
 ### 3.（可选，v2 用固定域名）
 
+quick tunnel 的 URL 每次重启都变。生产环境用 named tunnel 固定子域名
+（如 `bridge.example.com`）：
+
 ```bash
 cloudflared tunnel login
 cloudflared tunnel create podcastcut-bridge
 cloudflared tunnel route dns podcastcut-bridge bridge.yourdomain.com
 cloudflared tunnel run podcastcut-bridge
 ```
+
+完整文档：[`docs/named-tunnel-setup.md`](docs/named-tunnel-setup.md)
+配置模板：[`config.yml.example`](config.yml.example)
+
+何时切换 v1 → v2：第一次发现自己往 chat 里再粘一遍 `trycloudflare.com`
+URL 时。
 
 ## 启动 server
 

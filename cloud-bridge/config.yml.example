@@ -1,0 +1,36 @@
+# cloud-bridge — cloudflared named-tunnel config (v2 / stable URL)
+#
+# Copy this file to ~/.cloudflared/config.yml and replace the three
+# <fill-in-...> placeholders. See cloud-bridge/docs/named-tunnel-setup.md
+# for the full walkthrough.
+#
+# How to fill in:
+#   1. <fill-in-tunnel-id>      — UUID printed by `cloudflared tunnel create podcastcut-bridge`
+#   2. credentials-file path    — JSON file written next to that UUID
+#                                  (default: ~/.cloudflared/<uuid>.json)
+#   3. <your-domain>            — the Cloudflare-managed zone you ran
+#                                  `cloudflared tunnel route dns` against
+#
+# After editing, start with:  cloudflared tunnel run podcastcut-bridge
+
+tunnel: <fill-in-tunnel-id>
+credentials-file: /Users/xiangli/.cloudflared/<fill-in-tunnel-id>.json
+
+# Ingress rules are evaluated top-to-bottom; first match wins.
+# The final entry MUST be a catch-all (http_status:404 or similar),
+# otherwise cloudflared refuses to start the tunnel.
+ingress:
+  # Public hostname → local cloud-bridge server.js (PORT=8765 by default).
+  - hostname: bridge.<your-domain>.com
+    service: http://localhost:8765
+
+  # Catch-all: any request for a hostname not listed above gets a 404.
+  # Keep this LAST.
+  - service: http_status:404
+
+# Optional tuning (uncomment if you need it):
+#
+# loglevel: info               # debug | info | warn | error
+# transport-loglevel: warn
+# no-autoupdate: true          # disable cloudflared's self-update (recommended under launchd)
+# metrics: 127.0.0.1:9099      # Prometheus-style /metrics endpoint, local only
