@@ -155,34 +155,55 @@ ls "$BASE_DIR/profile.json" "$BASE_DIR/_debrief.json"
 
 粗剪 skill 的 LLM 分析步骤会读这两个文件（profile.tone/aggressiveness/glossary + debrief.must_keep/privacy/incidents），影响段落判定阈值与硬保护/硬删除。详见 `粗剪/SKILL.md § "Profile / debrief 注入"`。
 
-完成后给**总结 + UI link**：
+完成后给**总结 + 3 种回复方式**（语气温暖，不要 enumerated 命令感）：
 
 ```
 chat:
-粗剪完了，删了 5 个大段共 -8 分钟：
+粗剪完了。删了 5 个大段、总共 -8 分钟，原 65 min → 现在 57 min。
 
 1. [22:33-23:45] 录音失败重录段
 2. [34:12-35:00] 跑题闲聊（咖啡店选择）
-3. [48:20-49:10] 制作讨论（"我们要不要重录这段？"）
+3. [48:20-49:10] 制作讨论（"要不要重录这段？"）
 4. [55:00-56:30] 听众反馈段（之前用过）
 5. [62:00-62:45] 设备问题段
 
-总时长：原 65 min → 粗剪 57 min。
-
-3 个选择：
-- 「OK」→ 我直接继续精剪
-- 「恢复 2 3」→ 我把 2、3 改回保留，再给你确认
-- **网页精修**：打开 file:///Volumes/.../剪播客/review_roughcut.html，
-  在网页里 toggle 删除/恢复决策、做半句删除 → 点"导出" → 把
-  delete_segments_roughcut.json 拖回 DM 给我，我用你的修改版继续
+你可以这样跟我说：
+- "OK" / "可以" / "继续" → 我直接进精剪
+- "把第 3 段留着" / "1 和 4 别删" → 我把那几段从删除列表里拿出来，重新给你看一版
+- "想自己改" → 我给你审查页地址，你在网页上 toggle 完导出 JSON 拖回来给我
 ```
 
-用户决策：
-- "OK" → 继续精剪
-- "恢复 2 3" → 把 2、3 标记保留，重生 review HTML，再 confirm
-- 用户拖回 `delete_segments_roughcut.json` 附件 → `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_roughcut.json` 覆盖原文件，继续精剪
+用户决策路径：
 
-> 路径 2（网页直接 save、agent 自动 pickup）见 backlog task #9，MVP 不做。
+**A. 用户口头确认 "OK"** → 继续精剪。
+
+**B. 用户口头指示改某些块**（用自然语言，如 "把第 3 段留着"、"1 和 4 别删"、"再把 7 段也删掉"）：
+1. agent 解析 → 修改 `semantic_deep_analysis.json` 中对应 block 的 `action`（delete ↔ keep）或新增 block
+2. 用更新后的 analysis **重新生成 `review_roughcut.html`** —— 让用户在网页上看到当前的删除决策视觉效果
+3. 把改动总结 + 新 review HTML 路径 chat 出来，再等用户 confirm
+
+```
+chat:
+好，第 3 段（制作讨论）留着了。粗剪现在剩 4 段删除、总共 -7 分钟：
+
+1. [22:33-23:45] ...
+2. [34:12-35:00] ...
+4. [55:00-56:30] ...
+5. [62:00-62:45] ...
+
+新的审查页：file:///.../review_roughcut.html
+确认就回"OK"，再改告诉我。
+```
+
+**C. 用户要在网页上自己改** → agent 给本地 review HTML 路径；用户 toggle 完点"导出"下载 `delete_segments_roughcut.json` 拖回 DM；agent 用 `slock attachment view --id <id> --output $BASE_DIR/2_分析/delete_segments_roughcut.json` 覆盖原文件 → 继续精剪。
+
+> 路径 D（网页直接 save、agent 自动 pickup）见 backlog task #9，MVP 不做。
+
+### 名词约定（避免 chat 文案再出现的模糊用语）
+
+- "**删除块**" / "**第 N 段**"：指粗剪总结里编号的删除区间，**不是句子 idx**
+- "**重新生成审查页**"：覆盖 `review_roughcut.html`，让网页打开后视觉同步最新决策
+- 不要用 "重生"、"N 号块" 这种内部黑话——用 "第 N 段"、"重新生成审查页" 这种自然中文
 
 ---
 
