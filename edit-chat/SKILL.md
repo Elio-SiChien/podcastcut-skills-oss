@@ -76,18 +76,69 @@ chat: 收到，开始转录...
 
 ## 阶段 3：说话人确认 checkpoint（屏 4 chat 版）
 
+**⚠️ 关键流程顺序（Bug C 教训，2026-06-02）**：
+
+`speaker_mapping.json` **必须在 `generate_subtitles_from_aliyun.js` 之前写**——否则 subtitles_words.json + sentences.txt 里说话人字段是 `"Speaker 0"`、`"Speaker 1"` 而不是真名。
+（generate_subtitles 用 mapping 把 `speaker_id` 替换成名字，写完 subtitle 后再改 mapping **不会回写到已经生成的 subtitles/sentences**——除非重新跑这两个脚本。）
+
+### 正确顺序
+
+1. **阶段 2 转录完**：阿里云 FunASR 产 `aliyun_funasr_transcription.json`，知道 speaker_id 数量（如 2 个）。
+2. **写 best-guess speaker_mapping.json**：
+   - 读 profile.hosts（拿到 1-2 个候选名字 + 角色）
+   - 统计每个 speaker_id 的发言占比（在 transcription.json 里数 sentences）
+   - **规则**：访谈/采访类（profile.tone 含"访谈"/"嘉宾"）→ 占比最大的 speaker_id 通常是嘉宾（被采访的人讲得多）；闲聊类 → 默认按 profile 顺序。
+   - 写：`{"0": "嘉宾名", "1": "主持名"}` 或反之到 `1_转录/speaker_mapping.json`
+3. **跑 `generate_subtitles_from_aliyun.js aliyun_funasr_transcription.json speaker_mapping.json`** → subtitles_words.json 里说话人字段是真名
+4. **跑 `generate_sentences.js`** → sentences.txt 里也是真名
+5. **切 10s audio sample** per speaker → upload via Slock attachment
+6. **Chat 问用户确认**：
+
 ```
 chat:
-转录完了。识别出 N 个说话人，按 profile 自动标签：
-- spk_0 → 阿司（主持）— 听 10s 样本: [audio attachment]
-- spk_1 → 雨林（嘉宾）— 听 10s 样本: [audio attachment]
+转录完了，识别出 N 个说话人。按 profile 我猜：
+- Speaker 0 → 清扬（嘉宾，发言占 75%）— 听 10s 样本: [audio attachment]
+- Speaker 1 → 响歌歌（主持，发言占 25%）— 听 10s 样本: [audio attachment]
 
-对吗？不对告诉我改谁。
+「对」→ 继续粗剪
+「反了」→ 我把 0 和 1 对调 + **重生** subtitles/sentences
+「N 是别人 [名字]」→ 我改 mapping + **重生** subtitles/sentences
 ```
 
-用户回 "对" / "spk_0 是别人" → 调 manifest.js 更新 speaker_mapping.json。
+7. **如果用户说错了**：更新 speaker_mapping.json + **重新跑** generate_subtitles + generate_sentences。两个脚本都 idempotent（覆盖输出），重跑安全。**不要**手动 sed sentences.txt 改名——会跟 subtitles_words.json 不一致。
 
-样本通过 `slock attachment upload` 返回小 audio clip（用 ffmpeg 切 10s 段）。
+### 不要做的事
+
+- ❌ 先 generate_subtitles 再写 mapping → sentences.txt 会是"Speaker 0/1"
+- ❌ 跳过 audio sample → 用户没法识别哪个 speaker 是谁
+- ❌ 用户改 mapping 后只改 speaker_mapping.json 不重生 subtitles/sentences → 数据不一致
+
+### Code snippet 参考
+
+```bash
+# 在转录脚本跑完后、写 mapping 之前，先 best-guess
+node -e "
+const fa = require('$BASE_DIR/1_转录/aliyun_funasr_transcription.json');
+const profile = require('$BASE_DIR/profile.json');
+const counts = {};
+fa.transcripts[0].sentences.forEach(s => counts[s.speaker_id] = (counts[s.speaker_id]||0) + 1);
+const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+const hosts = profile.hosts.map(h => h.name);
+// Interview heuristic: speaker with most utterances = guest if profile has '嘉宾' role
+const guest = profile.hosts.find(h => h.role === '嘉宾')?.name;
+const host = profile.hosts.find(h => h.role === '主持')?.name;
+const mapping = {};
+if (guest && host && sorted.length >= 2) {
+  mapping[sorted[0][0]] = guest;  // top talker = guest
+  mapping[sorted[1][0]] = host;
+} else {
+  // Fallback: profile order
+  sorted.forEach(([sid], i) => { mapping[sid] = hosts[i] || \`Speaker \${sid}\`; });
+}
+require('fs').writeFileSync('$BASE_DIR/1_转录/speaker_mapping.json', JSON.stringify(mapping, null, 2));
+console.log('Best-guess mapping:', mapping);
+"
+```
 
 ---
 

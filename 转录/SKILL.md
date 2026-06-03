@@ -81,6 +81,8 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 
 ### 5. 识别说话人 + 创建映射
 
+**⚠️ 红线（Bug C 教训，2026-06-02）**：`speaker_mapping.json` **必须在第 6 步之前写好**。`generate_subtitles_from_aliyun.js` 把 mapping 烘进 subtitles_words.json 的 speaker 字段；写完后再改 mapping 不会回写到已生成的 subtitles/sentences——必须**重跑** step 6 才能生效。
+
 ```bash
 # 看前 20 句判断谁是谁（找自我介绍等线索）
 node "$SKILL_DIR/剪播客/scripts/identify_speakers.js" "$BASE_DIR/1_转录/aliyun_funasr_transcription.json"
@@ -91,6 +93,8 @@ cat > "$BASE_DIR/1_转录/speaker_mapping.json" << 'EOF'
 { "0": "清扬", "1": "响歌歌" }
 EOF
 ```
+
+> 在 chat-mode（edit-chat skill）里，这一步用 best-guess 算法（基于 profile.hosts + 发言占比）自动写 mapping；用户在 step 6 之后看到样本若不同意 → 重跑 step 6 即可。详见 `edit-chat/SKILL.md § 阶段 3`.
 
 ### 6. 生成字级转录 + 分句
 
