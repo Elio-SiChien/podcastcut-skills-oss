@@ -8,7 +8,7 @@ description: |
 
 <!--
 input: delete_segments_edited.json（精剪导出）+ 1_转录/audio_original.* + subtitles_words.json
-output: 3_成品/<名>_精剪版_vN.mp3 + *_trimmed.mp3、project.json(execute=done, products[])
+output: 3_成品/<名>_精剪版_vN.m4a + *_trimmed.m4a（默认 AAC；CODEC_EXT=mp3 可切 MP3）、project.json(execute=done, products[])
 pos: pipeline 执行步；上游=精剪(经 output/.current_project 交接)，下游=质检/音质处理/后期
 
 架构守护者：cut_audio.py / trim_silences.py 暂在 剪播客/scripts/（被 安装/质检/后期 等共用）。
@@ -57,9 +57,14 @@ DEL=delete_segments_edited.json
 ORIGINAL_AUDIO=$(ls "$BASE_DIR/1_转录/audio_original."* 2>/dev/null | head -1)
 [ -z "$ORIGINAL_AUDIO" ] && { echo "❌ 缺 audio_original.*，不能用 audio.mp3 出片"; exit 1; }
 
+# 选择输出格式：默认 .m4a（AAC）—— 文件比 MP3 小 ~30-50%，Slock 50MB 容易过线。
+# chat-mode（edit-chat skill）默认走 .m4a；要 podcast 平台 MP3 投递改成 ${CODEC_EXT:-mp3}。
+# task #12 历史：m4a 在 Apple 播放 auto-stop 已由 PR #36 的 MP4Box elst-strip 修复。
+CODEC_EXT="${CODEC_EXT:-m4a}"
+
 # 版本号：3_成品已有 vN 则自增（重剪历史）
-N=1; while [ -f "$BASE_DIR/3_成品/${AUDIO_NAME}_精剪版_v${N}.mp3" ]; do N=$((N+1)); done
-OUT="$BASE_DIR/3_成品/${AUDIO_NAME}_精剪版_v${N}.mp3"
+N=1; while [ -f "$BASE_DIR/3_成品/${AUDIO_NAME}_精剪版_v${N}.${CODEC_EXT}" ]; do N=$((N+1)); done
+OUT="$BASE_DIR/3_成品/${AUDIO_NAME}_精剪版_v${N}.${CODEC_EXT}"
 
 python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" \
   "$OUT" "$ORIGINAL_AUDIO" "$DEL" \
@@ -73,8 +78,8 @@ python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" \
 
 ```bash
 python3 "$SKILL_DIR/剪播客/scripts/trim_silences.py" "$OUT"
-# 默认检测 >0.8s 静音，裁到 0.6s；输出 *_trimmed.mp3
-TRIMMED="${OUT%.mp3}_trimmed.mp3"
+# 默认检测 >0.8s 静音，裁到 0.6s；输出 *_trimmed.${CODEC_EXT}
+TRIMMED="${OUT%.${CODEC_EXT}}_trimmed.${CODEC_EXT}"
 ```
 > 删内容后前后短静音会合并成超阈值长停顿，必须在成品上再扫一遍（见陷阱 24）。用户不满意可调 `--threshold/--target/--noise` 重跑。
 

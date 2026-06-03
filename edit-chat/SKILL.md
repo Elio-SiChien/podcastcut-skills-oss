@@ -251,15 +251,17 @@ chat: 精剪完了，删了 387 个填充词 + 60 个长停顿，再 -3 min。
 
 ## 阶段 6：出片 + 交付（屏 7 chat 版）
 
-调 `podcastcut-执行` skill 出 cut audio。**关键：成品必须 .mp3 输出**（task #12，2026-06-02 发现）——m4a 输出在 Apple QuickTime / Music 上会在播放中 auto-stop。podcast 听众大多在 Apple 设备，所以 chat 流程默认 MP3 投递。
+调 `podcastcut-执行` skill 出 cut audio。**默认 .m4a (AAC) 输出**——同质量下文件 30-50% 小于 MP3，更容易塞进 Slock 50MB 附件上限（50 min 节目 AAC 192k ≈ 45MB；MP3 192k ≈ 70MB 超限）。
+
+> task #12 历史：2026-06-02 发现 ffmpeg AAC 输出的 elst (edit list) atom 让 Apple QuickTime / Music 播放中 auto-stop。PR #36（2026-06-03 merged）用 gpac 的 `MP4Box -edits 1=r` post-encode 步骤去掉 elst，验证 Apple 端无 hiccup。cut_audio.py 现在自动应用，**.m4a 输出对 Apple 用户完全 OK**。
 
 ```bash
-# 调 cut_audio.py 时输出文件名必须 .mp3 后缀
-python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" "<name>_精剪版.mp3" ...
-# trim_silences 自动保留 .mp3 后缀
+# 调 cut_audio.py 默认 .m4a 输出
+python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" "<name>_精剪版.m4a" ...
+# trim_silences 自动保留 .m4a 后缀
 
 # 上传到 Slock
-slock attachment upload --path "$BASE_DIR/剪播客/3_成品/<name>_trimmed.mp3" --channel <target>
+slock attachment upload --path "$BASE_DIR/剪播客/3_成品/<name>_trimmed.m4a" --channel <target>
 # 拿到 attachment-id，作为附件发回
 ```
 
@@ -267,7 +269,7 @@ slock attachment upload --path "$BASE_DIR/剪播客/3_成品/<name>_trimmed.mp3"
 chat:
 🎧 成品出炉：
 
-[audio attachment: <name>_trimmed.mp3]
+[audio attachment: <name>_trimmed.m4a]
 
 Changelog：
 - 粗剪 5 个大段 -8 min
