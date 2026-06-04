@@ -25,10 +25,11 @@ pos: 在 /podcastcut-剪播客 阶段 3 之后、/podcastcut-后期 之前
 
 ## 🔴 音质保护红线
 
-1. **不降低码率** — 输出 MP3 码率 ≥ 输入码率（至少 192kbps）
-2. **处理前自动备份** — 原文件备份为 `*_pre_audio_fix.mp3`
+1. **不降低码率** — 输出码率 ≥ 输入码率（至少 192 kbps）；输出格式由输出文件扩展名决定（`.m4a` → AAC，`.mp3` → MP3，`.wav` → PCM）
+2. **处理前自动备份** — **输入**文件复制为 `<name>_pre_audio_fix.<ext>` 同目录下（不是看输出存不存在！bug #3 fix）
 3. **音乐段不处理** — 自动检测或用户标注的音乐段原样保留
 4. **每步可预览** — 用户可以在任一步骤停下来试听效果
+5. **声道保留** — stereo 源保 stereo，不降到 mono（bug #2 fix）
 
 ---
 
@@ -143,15 +144,20 @@ python3 "$SKILL_DIR/音质处理/scripts/analyze_loudness.py" \
 ### 步骤 2: 按说话人降噪/去回声
 
 ```bash
+# 输出 ext 决定 codec：.m4a→aac / .mp3→mp3 / .wav→pcm
 python3 "$SKILL_DIR/音质处理/scripts/process_speaker.py" \
   --audio <音频路径> \
   --words <subtitles_words.json> \
-  --speaker-mapping <speaker_mapping.json> \
   --speakers "阿司" \
-  --method deepfilternet \
-  --output <output_dir>/audio_denoised.mp3 \
+  --output <output_dir>/audio_denoised.m4a \
   --bitrate 192k
 ```
+
+> 2026-06-04 重构：去掉了 `--speaker-mapping`（dead arg，subtitles_words.json
+> 的 speaker 字段已经是真名）。改成用 deepfilternet 的 Python API 一次性
+> 加载模型（before: 30 min/小时音频 → after: ~5 min）。Stereo 源保 stereo，
+> 输出格式按 ext 自动选 codec。每段失败不影响其他段，错误完整打印不再被
+> stderr[:200] 截断。详见 PR 描述。
 
 **工作原理**：
 1. 从 `subtitles_words.json` 提取指定说话人的所有时间段
@@ -210,6 +216,7 @@ python3 "$SKILL_DIR/音质处理/scripts/detect_music.py" \
 python3 "$SKILL_DIR/音质处理/scripts/normalize_loudness.py" \
   --audio <上一步输出的音频> \
   --loudness-report <output_dir>/loudness_report.json \
+  --words <subtitles_words.json> \
   --music-segments <output_dir>/music_segments.json \
   --target-lufs -16 \
   --output <最终输出路径> \
@@ -219,8 +226,10 @@ python3 "$SKILL_DIR/音质处理/scripts/normalize_loudness.py" \
 **处理逻辑**：
 1. 按说话人时间段应用各自的增益补偿（来自响度报告）
 2. 音乐段应用整体增益（不按说话人）
-3. 全局 limiter 防止削波（peak -1 dBTP）
-4. 最终输出标准化到 -16 LUFS
+3. 最终输出标准化到 -16 LUFS（via pyloudnorm）
+4. **Sample-level peak limiter**（np.clip）防止编码时削波 —— 只压超阈值的瞬时峰值，不再把整轨音量按比例砍下来（bug #9 fix）
+
+> 输出 codec 同样按 ext 自动选择，stereo 源保 stereo。
 
 ---
 

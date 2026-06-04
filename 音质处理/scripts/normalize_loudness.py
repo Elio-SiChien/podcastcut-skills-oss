@@ -51,8 +51,13 @@ CROSSFADE_MS = 30       # 说话人段落衔接 crossfade
 TRUE_PEAK_LIMIT = -1.0  # dBTP limiter 上限
 
 
-def load_speaker_segments(words_path, mapping_path):
-    """从 subtitles_words.json 提取每个说话人的连续时间段。"""
+def load_speaker_segments(words_path):
+    """从 subtitles_words.json 提取每个说话人的连续时间段。
+
+    注：原签名带 mapping_path 但从不读它（subtitles_words.json 的 speaker
+    字段已经是真名，由 generate_subtitles 写入时映射好的）—— bug #4
+    清理：删了死参数。
+    """
     with open(words_path) as f:
         words = json.load(f)
 
@@ -86,18 +91,29 @@ def load_speaker_segments(words_path, mapping_path):
 
 
 def decode_audio(audio_path, target_sr=48000):
-    """解码音频为 WAV numpy array。"""
+    """解码音频为 numpy array (samples × channels)，保留原始声道。
+
+    Bug #2 fix: 之前强制 `-ac 1` 把 stereo 源压成 mono，丢一半信道。
+    """
+    probe = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
+         '-show_entries', 'stream=channels', '-of', 'csv=p=0', audio_path],
+        capture_output=True, text=True, check=True,
+    )
+    orig_channels = max(1, int(probe.stdout.strip() or '1'))
+
     tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     tmp.close()
     try:
         subprocess.run([
             'ffmpeg', '-i', audio_path, '-vn', '-acodec', 'pcm_s16le',
-            '-ar', str(target_sr), '-ac', '1', '-y', tmp.name
+            '-ar', str(target_sr), '-ac', str(orig_channels), '-y', tmp.name
         ], capture_output=True, check=True)
-        data, sr = sf.read(tmp.name)
+        data, sr = sf.read(tmp.name, always_2d=True)
         return data, sr
     finally:
-        os.unlink(tmp.name)
+        try: os.unlink(tmp.name)
+        except OSError: pass
 
 
 def db_to_linear(db):
@@ -105,52 +121,81 @@ def db_to_linear(db):
 
 
 def apply_gain_with_crossfade(audio, start_idx, end_idx, gain_linear, fade_samples):
-    """对指定范围应用增益，边界做 crossfade 过渡。"""
+    """对指定范围应用增益，边界做 crossfade 过渡。
+
+    Handles both 1-D (mono) and 2-D (samples × channels) arrays — the fade
+    curve is broadcast across channels when needed.
+    """
     segment = audio[start_idx:end_idx].copy()
     segment *= gain_linear
 
-    # 前 crossfade（从原始增益渐变到新增益）
-    if fade_samples > 0 and start_idx > 0:
-        fade_len = min(fade_samples, len(segment))
-        fade_curve = np.linspace(0.0, 1.0, fade_len)
-        original = audio[start_idx:start_idx + fade_len]
-        gained = segment[:fade_len]
-        segment[:fade_len] = original * (1.0 - fade_curve) + gained * fade_curve
+    def _curve(n, up):
+        c = np.linspace(0.0, 1.0, n, dtype=audio.dtype) if up else np.linspace(1.0, 0.0, n, dtype=audio.dtype)
+        return c[:, None] if audio.ndim == 2 else c
 
-    # 后 crossfade（从新增益渐变回原始增益）
-    if fade_samples > 0 and end_idx < len(audio):
-        fade_len = min(fade_samples, len(segment))
-        fade_curve = np.linspace(1.0, 0.0, fade_len)
-        offset = len(segment) - fade_len
+    # 前 crossfade
+    if fade_samples > 0 and start_idx > 0:
+        fade_len = min(fade_samples, segment.shape[0])
+        fade_curve = _curve(fade_len, up=True)
+        original = audio[start_idx:start_idx + fade_len]
+        segment[:fade_len] = original * (1.0 - fade_curve) + segment[:fade_len] * fade_curve
+
+    # 后 crossfade
+    if fade_samples > 0 and end_idx < audio.shape[0]:
+        fade_len = min(fade_samples, segment.shape[0])
+        fade_curve = _curve(fade_len, up=False)
+        offset = segment.shape[0] - fade_len
         original = audio[end_idx - fade_len:end_idx]
-        gained = segment[offset:]
-        segment[offset:] = gained * fade_curve + original * (1.0 - fade_curve)
+        segment[offset:] = segment[offset:] * fade_curve + original * (1.0 - fade_curve)
 
     audio[start_idx:end_idx] = segment
     return audio
 
 
 def apply_limiter(audio, peak_db):
-    """简单的 hard limiter，防止削波。"""
+    """
+    Sample-level peak limiter via clip.
+
+    Bug #9 fix (2026-06-03 review): the old "scale-whole-signal-by-peak-ratio"
+    approach attenuated every sample whenever ANY sample exceeded the
+    threshold, which killed the LUFS we'd just normalised to (-16 → -21.9
+    measured on meeting_02). The fix is sample-level — only the offending
+    peaks get clipped, the rest of the signal (which carries the loudness
+    information) is untouched.
+
+    Hard-clipping introduces light harmonic distortion on the affected
+    peaks. For podcast voice this is inaudible at -1 dBFS; if it ever
+    becomes audible we can swap to a tanh soft-clip without changing the
+    callsite.
+    """
     peak_linear = db_to_linear(peak_db)
-    peak_val = np.max(np.abs(audio))
-    if peak_val > peak_linear:
-        audio = audio * (peak_linear / peak_val)
-    return audio
+    return np.clip(audio, -peak_linear, peak_linear)
 
 
 def encode_output(wav_data, sr, output_path, bitrate='192k'):
-    """编码为 MP3。"""
+    """
+    编码输出，按 ext 自动选 codec.
+
+    Bug #2 fix: 之前硬编码 libmp3lame，.m4a 输入也输出 mp3，跨格式 + 二次
+    有损编码。
+    """
+    ext = os.path.splitext(output_path)[1].lower()
     tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     tmp.close()
     try:
         sf.write(tmp.name, wav_data, sr)
-        subprocess.run([
-            'ffmpeg', '-i', tmp.name, '-c:a', 'libmp3lame',
-            '-b:a', bitrate, '-y', output_path
-        ], capture_output=True, check=True)
+        if ext == '.wav':
+            shutil.copy2(tmp.name, output_path)
+            return
+        if ext in ('.m4a', '.aac', '.mp4'):
+            codec_args = ['-c:a', 'aac', '-b:a', bitrate, '-movflags', '+faststart']
+        else:
+            codec_args = ['-c:a', 'libmp3lame', '-b:a', bitrate]
+        subprocess.run(['ffmpeg', '-i', tmp.name, *codec_args, '-y', output_path],
+                       capture_output=True, check=True)
     finally:
-        os.unlink(tmp.name)
+        try: os.unlink(tmp.name)
+        except OSError: pass
 
 
 def format_time(seconds):
@@ -164,12 +209,12 @@ def main():
     parser.add_argument('--audio', required=True, help='输入音频路径')
     parser.add_argument('--loudness-report', help='loudness_report.json 路径')
     parser.add_argument('--words', help='subtitles_words.json 路径')
-    parser.add_argument('--speaker-mapping', help='speaker_mapping.json 路径')
     parser.add_argument('--music-segments', help='music_segments.json 路径')
     parser.add_argument('--target-lufs', type=float, default=-16.0, help='目标 LUFS（默认 -16）')
     parser.add_argument('--output', required=True, help='输出音频路径')
     parser.add_argument('--bitrate', default='192k', help='输出码率（默认 192k）')
     parser.add_argument('--global-only', action='store_true', help='跳过按说话人补偿，只做全局标准化')
+    parser.add_argument('--no-backup', action='store_true', help='跳过输入备份')
     args = parser.parse_args()
 
     print(f"🔊 开始响度标准化")
@@ -183,14 +228,22 @@ def main():
     total_samples = len(audio_data)
     print(f"   采样率: {sr}Hz, 时长: {format_time(total_samples / sr)}")
 
+    # Backup input (red line #2 in SKILL.md)
+    if not args.no_backup and args.audio != args.output:
+        base, ext = os.path.splitext(args.audio)
+        backup = f"{base}_pre_audio_fix{ext}"
+        if not os.path.exists(backup):
+            shutil.copy2(args.audio, backup)
+            print(f"   📁 输入已备份 → {backup}")
+
     # 2. 按说话人增益补偿
-    if not args.global_only and args.loudness_report and args.words and args.speaker_mapping:
+    if not args.global_only and args.loudness_report and args.words:
         print("\n   📐 按说话人增益补偿...")
 
         with open(args.loudness_report) as f:
             loudness_report = json.load(f)
 
-        speaker_segments = load_speaker_segments(args.words, args.speaker_mapping)
+        speaker_segments = load_speaker_segments(args.words)
 
         # 加载音乐段（跳过）
         music_ranges = []
@@ -244,7 +297,7 @@ def main():
         print(f"   共调整 {adjusted_count} 个段落")
     else:
         if not args.global_only:
-            print("   ⚠️ 缺少 loudness-report/words/speaker-mapping，跳过按说话人补偿")
+            print("   ⚠️ 缺少 loudness-report/words，跳过按说话人补偿")
 
     # 3. 全局响度标准化
     print(f"\n   🌐 全局响度标准化 → {args.target_lufs} LUFS...")
