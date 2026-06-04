@@ -7,7 +7,11 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
+        <!-- /usr/bin/env resolves node via the PATH set below; works on
+             Intel brew (/usr/local/bin) and Apple Silicon brew
+             (/opt/homebrew/bin) without a hard-coded path. -->
+        <string>/usr/bin/env</string>
+        <string>node</string>
         <string>/Users/xiangli/Coding/podcastcut-skill-v2/podcastcut-skills/cloud-bridge/server.js</string>
     </array>
 
