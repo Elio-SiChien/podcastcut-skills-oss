@@ -9,7 +9,48 @@ description: 播客最终润色。高亮片段预览、片头背景音乐、时�
 
 ---
 
-## ⚠️ 启动时必须询问音乐和时长
+## 推荐路径：网页 UI（cloud-bridge mastering session）
+
+> 2026-06-03 加：原来的"chat 一问一答收集 4 件事 + 确认时长方案"流程仍可用（见下），但**推荐**先生成 `mastering.html` 并通过 cloud-bridge 把链接发给用户。用户在一页里完成 3 件事：
+>
+> 1. **选金句**——agent 用启发式打分预选 3 条作起点，用户点 ★ 自选 / 取消（最多 6 条）。点行还能播放对应音频片段。
+> 2. **调音乐时长**——片头/片尾滑块（5-30s），实时显示渐入渐出参数。
+> 3. **上传片头/片尾文件**——拖一下，后端流式落到 `<base_dir>/3_后期/theme_<intro|outro>.<ext>`。
+>
+> 用户点"完成开始后期" → server 写 `state.committed.json` → agent 拾起 → 跑 mix 脚本。
+>
+> ```bash
+> # 1. 生成 HTML（启发式预选 3 条金句）
+> node "$SKILL_DIR/后期/scripts/generate_mastering.js" \
+>   --sentences "$BASE_DIR/2_分析/sentences.txt" \
+>   --words "$BASE_DIR/1_转录/subtitles_words.json" \
+>   --audio "$AUDIO_FOR_PLAYBACK" \
+>   --output "$BASE_DIR/3_后期/mastering.html" \
+>   --title "<episode name> · 后期审查" \
+>   --base-dir "$BASE_DIR"
+>
+> # 2. mint session
+> SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_mastering_session.sh" \
+>   "$BASE_DIR" \
+>   "$BASE_DIR/3_后期/mastering.html" \
+>   "$AUDIO_FOR_PLAYBACK")
+>
+> # 3. chat 出链接
+> echo "$TUNNEL_URL/m/$SESSION"
+>
+> # 4. block until 用户 commit
+> bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
+>
+> # 5. 拾起 state.committed.json：里面有 quotes[] / intro_dur / outro_dur /
+> #    intro_filename / outro_filename。上传的文件已经在
+> #    $BASE_DIR/3_后期/theme_intro.* / theme_outro.* 落盘。
+> ```
+>
+> 下面那套 chat-only 流程保留作 fallback——cloud-bridge 不可用 / 用户明确要求 chat 交互时用。
+
+---
+
+## ⚠️ 启动时必须询问音乐和时长（chat-only fallback）
 
 **在开始任何工作之前，必须先询问用户：**
 

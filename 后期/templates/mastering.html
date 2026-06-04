@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE__</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap');
+
+:root {
+  /* Fig Mint — match 剪播客/review.html */
+  --sage: #EFECE6;
+  --sage-light: #F7F5F0;
+  --sage-dark: #DDD8D0;
+  --sage-deep: #CEC8BD;
+  --black: #1A1A1A;
+  --dark: #2D2D2D;
+  --mid: #4A4A4A;
+  --muted: #6E6E6E;
+  --light: #9A9A9A;
+  --faint: #F2EFEA;
+  --white: #FAFAF7;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: var(--sage);
+  color: var(--black);
+  -webkit-font-smoothing: antialiased;
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.serif {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", Georgia, "Times New Roman", serif;
+}
+.mono {
+  font-family: "SF Mono", "Fira Code", Consolas, "Courier New", monospace;
+}
+
+/* ===== TOPBAR ===== */
+.topbar {
+  position: fixed; top:0; left:0; right:0; z-index:1000;
+  background: #1A1A1A; height: 48px;
+  display: flex; align-items: center;
+  padding: 0 32px; gap: 24px;
+}
+.topbar .brand {
+  font-family: "Noto Serif SC", serif;
+  font-size: 16px; font-weight: 900; color: #EFECE6;
+  letter-spacing: 2px;
+}
+.topbar .proj { font-size: 13px; color: var(--light); letter-spacing: 1px; }
+.topbar .fill { flex:1; }
+.topbar .status { font-size: 11px; color: var(--muted); letter-spacing: 1.5px; font-family: "SF Mono", monospace; }
+.topbar .expbtn {
+  background: #EFECE6; color: #1A1A1A; border: none;
+  padding: 8px 24px; font-size: 13px; font-weight: 700;
+  letter-spacing: 2px; cursor: pointer; transition: all .12s; border-radius: 4px;
+  font-family: inherit;
+}
+.topbar .expbtn:hover:not(:disabled) { background: #FFF; }
+.topbar .expbtn:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ===== LAYOUT ===== */
+.layout {
+  display: flex;
+  margin-top: 48px;
+  margin-bottom: 72px;
+}
+
+/* --- SIDEBAR --- */
+.sidebar {
+  width: 360px; flex-shrink:0;
+  background: var(--sage-light);
+  border-right: 1px solid var(--sage-dark);
+  box-shadow: 2px 0 12px rgba(0,0,0,.04);
+  position: sticky; top: 48px;
+  height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 36px 28px;
+  display: flex; flex-direction: column; gap: 28px;
+}
+
+.section-label {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--mid); margin-bottom: 12px;
+  font-family: "SF Mono", monospace;
+}
+
+.nav-item {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 14px 14px; border-radius: 6px;
+  cursor: pointer; transition: all .12s;
+  border-left: 3px solid transparent;
+  text-decoration: none;
+}
+.nav-item:hover { background: var(--sage); }
+.nav-item.active { background: var(--sage); border-left-color: var(--black); }
+.nav-num {
+  font-family: "SF Mono", monospace;
+  font-size: 13px; color: var(--muted);
+  min-width: 22px; padding-top: 3px;
+}
+.nav-item.active .nav-num { color: var(--dark); }
+.nav-body { flex:1; }
+.nav-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 17px; font-weight: 700; color: var(--black);
+  line-height: 1.4; margin-bottom: 2px;
+}
+.nav-meta {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; color: var(--muted); letter-spacing: 0.5px;
+}
+
+/* --- MAIN --- */
+.main { flex:1; min-width:0; padding: 40px 52px; }
+
+.main-hdr {
+  position: sticky; top: 48px; z-index: 99;
+  background: var(--sage);
+  padding: 24px 0 16px;
+  margin: -24px -52px 24px; padding-left: 52px; padding-right: 52px;
+  border-bottom: 1px solid var(--sage-dark);
+}
+.main-title {
+  font-family: "Noto Serif SC", serif;
+  font-size: 40px; font-weight: 900; color: var(--black);
+  line-height: 1.2; margin-bottom: 8px;
+}
+.main-sub {
+  font-size: 16px; color: var(--mid); line-height: 1.7;
+}
+
+section.block {
+  background: var(--white);
+  border: 1px solid var(--sage-dark);
+  border-radius: 10px;
+  padding: 28px 32px;
+  margin-bottom: 28px;
+}
+section.block > h2 {
+  font-family: "Noto Serif SC", serif;
+  font-size: 22px; font-weight: 900; color: var(--black);
+  margin-bottom: 4px;
+  display: flex; align-items: baseline; gap: 12px;
+}
+section.block > h2 .ord {
+  font-family: "SF Mono", monospace;
+  font-size: 14px; color: var(--muted); font-weight: 400;
+}
+section.block > .desc {
+  font-size: 14px; color: var(--muted); margin-bottom: 22px;
+}
+
+/* ===== SECTION 1: QUOTES — selected on top ===== */
+.quote-selected {
+  background: var(--faint);
+  border-left: 3px solid var(--black);
+  padding: 18px 22px;
+  margin-bottom: 24px;
+  border-radius: 0 8px 8px 0;
+}
+.quote-selected-hdr {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--mid); margin-bottom: 14px;
+  display: flex; align-items: baseline; justify-content: space-between;
+}
+.quote-selected-hdr .count {
+  font-family: "Noto Serif SC", serif;
+  font-size: 20px; font-weight: 900; color: var(--black);
+  letter-spacing: 0;
+}
+.qsel-empty {
+  color: var(--muted); font-size: 14px; font-style: italic;
+  padding: 8px 0;
+}
+.qsel-row {
+  display: grid; grid-template-columns: 24px 60px 1fr auto;
+  gap: 12px; padding: 10px 0;
+  border-bottom: 1px solid var(--sage-dark);
+  align-items: baseline;
+}
+.qsel-row:last-child { border-bottom: 0; }
+.qsel-star { color: var(--black); font-size: 16px; padding-top: 2px; }
+.qsel-time {
+  font-family: "SF Mono", monospace;
+  font-size: 12px; color: var(--muted);
+}
+.qsel-text {
+  font-family: "Noto Serif SC", serif;
+  font-size: 17px; line-height: 1.6; color: var(--black);
+  cursor: pointer;
+}
+.qsel-text:hover { text-decoration: underline; text-underline-offset: 3px; }
+.qsel-text .spk {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+  font-size: 12px; color: var(--muted); margin-right: 8px;
+  letter-spacing: 1px;
+}
+.qsel-x {
+  background: none; border: 1px solid var(--sage-dark);
+  color: var(--muted); padding: 2px 8px; border-radius: 4px;
+  cursor: pointer; font-size: 11px; letter-spacing: 1px;
+  font-family: inherit;
+}
+.qsel-x:hover { border-color: var(--black); color: var(--black); }
+
+.quote-divider {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--mid); margin: 12px 0 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.quote-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--sage-dark);
+}
+
+.quote-list {
+  max-height: 520px; overflow-y: auto;
+  border: 1px solid var(--sage-dark); border-radius: 8px;
+  background: var(--sage-light);
+}
+.qrow {
+  display: grid; grid-template-columns: 22px 56px 70px 1fr;
+  gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--sage-dark);
+  font-size: 14px; cursor: pointer;
+  transition: background .1s;
+  align-items: baseline;
+}
+.qrow:last-child { border-bottom: 0; }
+.qrow:hover { background: var(--faint); }
+.qrow.sel { background: var(--faint); }
+.qrow .col-star { font-size: 14px; padding-top: 1px; color: var(--light); }
+.qrow.sel .col-star { color: var(--black); }
+.qrow.sel .col-star::before { content: '★'; }
+.qrow:not(.sel) .col-star::before { content: '☆'; }
+.qrow .col-time {
+  font-family: "SF Mono", monospace; font-size: 11px; color: var(--muted);
+  padding-top: 2px;
+}
+.qrow .col-spk {
+  font-size: 11px; color: var(--muted); letter-spacing: 1px;
+  padding-top: 2px; white-space: nowrap;
+}
+.qrow .col-text { line-height: 1.55; color: var(--dark); }
+.qrow .col-suggest {
+  display: inline-block; margin-left: 8px;
+  font-family: "SF Mono", monospace; font-size: 10px;
+  color: var(--muted); letter-spacing: 1px;
+}
+
+/* ===== SECTION 3: PARAM SLIDERS ===== */
+.param-group { margin-bottom: 24px; }
+.param-group:last-of-type { margin-bottom: 12px; }
+.param-group-hdr {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; font-weight: 700; letter-spacing: 2.5px;
+  text-transform: uppercase; color: var(--mid); margin-bottom: 12px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.param-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 900px) { .param-row { grid-template-columns: 1fr; } }
+.param-slider-card {
+  border: 1px solid var(--sage-dark);
+  border-radius: 8px;
+  padding: 16px 18px;
+  background: var(--sage-light);
+}
+.param-label {
+  font-family: "SF Mono", monospace;
+  font-size: 10px; font-weight: 700; letter-spacing: 2px;
+  text-transform: uppercase; color: var(--mid); margin-bottom: 6px;
+}
+.param-display {
+  font-family: "Noto Serif SC", serif;
+  font-size: 32px; font-weight: 900; color: var(--black);
+  line-height: 1; margin-bottom: 10px;
+}
+.param-display .unit {
+  font-size: 14px; font-weight: 700; color: var(--mid); margin-left: 4px;
+}
+.dur-slider {
+  width: 100%; accent-color: var(--black);
+  height: 4px; margin-bottom: 6px;
+}
+.dur-range {
+  display: flex; justify-content: space-between;
+  font-family: "SF Mono", monospace; font-size: 10px; color: var(--muted);
+}
+
+.preview-bar {
+  margin-top: 18px; padding-top: 18px;
+  border-top: 1px solid var(--sage-dark);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.preview-btn {
+  background: var(--black); color: var(--sage-light); border: none;
+  padding: 10px 22px; font-size: 13px; font-weight: 700; letter-spacing: 1.5px;
+  cursor: pointer; border-radius: 6px; font-family: inherit;
+  transition: all .12s;
+}
+.preview-btn:hover:not(:disabled) { background: var(--dark); }
+.preview-btn:disabled { background: var(--sage-dark); color: var(--muted); cursor: not-allowed; }
+.preview-hint {
+  font-family: "SF Mono", monospace; font-size: 11px;
+  color: var(--muted); letter-spacing: 0.5px;
+}
+
+/* ===== SECTION 3: UPLOAD ===== */
+.up-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.drop {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  min-height: 200px; padding: 28px 20px;
+  border: 2px dashed var(--sage-dark);
+  border-radius: 8px; background: var(--sage-light);
+  cursor: pointer; transition: all .15s;
+  text-align: center;
+}
+.drop:hover, .drop.hover { border-color: var(--black); background: var(--faint); }
+.drop.busy { border-style: solid; border-color: var(--mid); background: var(--faint); cursor: wait; }
+.drop.done { border-style: solid; border-color: var(--black); background: var(--white); }
+.drop.fail { border-color: #8a3a30; }
+.drop input[type=file] { display: none; }
+.drop .label {
+  font-family: "Noto Serif SC", serif;
+  font-size: 16px; font-weight: 700; color: var(--black);
+  margin-bottom: 6px;
+}
+.drop .meta {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; color: var(--muted); letter-spacing: 0.5px;
+  min-height: 14px; margin-bottom: 4px;
+}
+.drop .progress {
+  width: 70%; height: 3px; background: var(--sage-dark);
+  margin-top: 10px; border-radius: 999px; overflow: hidden; display: none;
+}
+.drop.busy .progress { display: block; }
+.drop .pfill { height: 100%; background: var(--black); width: 0; transition: width .1s linear; }
+.drop audio { width: 90%; margin-top: 12px; height: 32px; }
+
+/* ===== PLAYER (fixed bottom, same as review.html) ===== */
+.player {
+  position: fixed; bottom:0; left:0; right:0; z-index:1000;
+  background: #1A1A1A; height: 72px;
+  display: flex; align-items: center; padding: 0 32px; gap: 24px;
+}
+.p-time { font-family: "SF Mono", monospace; font-size: 15px; color: var(--sage-light); min-width: 60px; }
+.p-total { font-family: "SF Mono", monospace; font-size: 15px; color: var(--muted); min-width: 60px; }
+.p-track { flex:1; height: 4px; background: var(--dark); cursor:pointer; position:relative; border-radius:2px; }
+.p-fill { height:100%; background: #EFECE6; width:0%; transition:width .05s; border-radius:2px; position:relative; }
+.p-leaf { position:absolute; right:-6px; top:-5px; width:14px; height:14px;
+  background: #EFECE6; border-radius: 50%; transition: right .05s; box-shadow: 0 0 0 2px #1A1A1A; }
+.p-btn {
+  background: transparent; color: var(--sage-light);
+  border: 1.5px solid var(--muted);
+  padding: 7px 24px; font-size: 12px; font-weight: 700;
+  letter-spacing: 2px; cursor: pointer; transition: all .12s;
+  font-family: inherit;
+}
+.p-btn:hover { background: var(--sage-light); color: var(--black); border-color: var(--sage-light); }
+
+audio#au { display: none; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">辟客 · 后期</span>
+  <span class="proj">__BASE_DIR_SHORT__</span>
+  <span class="fill"></span>
+  <span class="status" id="cb-status">本地模式 · 改完点保存</span>
+  <button class="expbtn" id="btn-save">保存进度</button>
+  <button class="expbtn" id="btn-commit">完成开始后期</button>
+</div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div>
+      <div class="section-label">本期</div>
+      <div style="font-family:'Noto Serif SC',serif; font-size: 26px; font-weight: 900; line-height: 1.25; color: var(--black);">__EPISODE_NAME__</div>
+      <div style="margin-top: 6px; font-family: 'SF Mono', monospace; font-size: 11px; color: var(--muted); letter-spacing: 1px;" id="sb-total">… 句</div>
+    </div>
+
+    <div>
+      <div class="section-label">流程</div>
+      <a class="nav-item active" data-target="#sec-quotes">
+        <span class="nav-num">01</span>
+        <div class="nav-body">
+          <div class="nav-title">金句选择</div>
+          <div class="nav-meta" id="sb-quotes">0 / 6 选中</div>
+        </div>
+      </a>
+      <a class="nav-item" data-target="#sec-uploads">
+        <span class="nav-num">02</span>
+        <div class="nav-body">
+          <div class="nav-title">上传文件</div>
+          <div class="nav-meta" id="sb-uploads">片头 · 片尾 待上传</div>
+        </div>
+      </a>
+      <a class="nav-item" data-target="#sec-params">
+        <span class="nav-num">03</span>
+        <div class="nav-body">
+          <div class="nav-title">音乐参数</div>
+          <div class="nav-meta" id="sb-params">片头 15s · 片尾 15s</div>
+        </div>
+      </a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="main-hdr">
+      <h1 class="main-title">后期审查</h1>
+      <p class="main-sub">挑金句、调音乐时长、拖片头片尾。三件事都做完点"完成开始后期"，我接着剪。</p>
+    </div>
+
+    <section class="block" id="sec-quotes">
+      <h2>金句选择 <span class="ord">01</span></h2>
+      <p class="desc">选 3–6 句最有记忆点的话用做片头预览。AI 预选了 3 句作起点，你可以替换；点任一句会跳到那段播放。</p>
+
+      <div class="quote-selected">
+        <div class="quote-selected-hdr">
+          <span>已选金句</span>
+          <span class="count" id="qsel-count">0 / 6</span>
+        </div>
+        <div id="qsel-list"></div>
+      </div>
+
+      <div class="quote-divider">全部句子（点 ☆ 选中 / 取消）</div>
+      <div class="quote-list" id="quote-list"></div>
+    </section>
+
+    <section class="block" id="sec-uploads">
+      <h2>上传片头 / 片尾 <span class="ord">02</span></h2>
+      <p class="desc">拖音乐文件进来。上传完才能在下面调时长和渐入渐出 + 试听。</p>
+      <div class="up-grid">
+        <label class="drop" data-slot="intro">
+          <div class="label" data-label>拖片头音乐到这里</div>
+          <div class="meta" data-meta>点击也可以选文件</div>
+          <div class="progress"><div class="pfill" data-fill></div></div>
+          <audio data-preview controls style="display:none"></audio>
+          <input type="file" accept="audio/*" data-file>
+        </label>
+        <label class="drop" data-slot="outro">
+          <div class="label" data-label>拖片尾音乐到这里</div>
+          <div class="meta" data-meta>点击也可以选文件</div>
+          <div class="progress"><div class="pfill" data-fill></div></div>
+          <audio data-preview controls style="display:none"></audio>
+          <input type="file" accept="audio/*" data-file>
+        </label>
+      </div>
+    </section>
+
+    <section class="block" id="sec-params">
+      <h2>音乐参数 <span class="ord">03</span></h2>
+      <p class="desc">片头 / 片尾各 3 个参数（总时长 + 渐入 + 渐出），按你的节奏调。如果选了金句，还有 2 个金句间的参数。</p>
+
+      <div class="param-group">
+        <div class="param-group-hdr">片头</div>
+        <div class="param-row">
+          <div class="param-slider-card">
+            <div class="param-label">总时长</div>
+            <div class="param-display"><span id="intro-dur-val">15</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="5" max="30" step="1" value="15" id="intro-dur">
+            <div class="dur-range"><span>5s</span><span>30s</span></div>
+          </div>
+          <div class="param-slider-card">
+            <div class="param-label">渐入</div>
+            <div class="param-display"><span id="intro-fin-val">2</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="0" max="10" step="0.5" value="2" id="intro-fin">
+            <div class="dur-range"><span>0s</span><span>10s</span></div>
+          </div>
+          <div class="param-slider-card">
+            <div class="param-label">渐出</div>
+            <div class="param-display"><span id="intro-fout-val">3</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="0" max="10" step="0.5" value="3" id="intro-fout">
+            <div class="dur-range"><span>0s</span><span>10s</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="param-group">
+        <div class="param-group-hdr">片尾</div>
+        <div class="param-row">
+          <div class="param-slider-card">
+            <div class="param-label">总时长</div>
+            <div class="param-display"><span id="outro-dur-val">15</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="5" max="30" step="1" value="15" id="outro-dur">
+            <div class="dur-range"><span>5s</span><span>30s</span></div>
+          </div>
+          <div class="param-slider-card">
+            <div class="param-label">渐入</div>
+            <div class="param-display"><span id="outro-fin-val">5</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="0" max="10" step="0.5" value="5" id="outro-fin">
+            <div class="dur-range"><span>0s</span><span>10s</span></div>
+          </div>
+          <div class="param-slider-card">
+            <div class="param-label">渐出</div>
+            <div class="param-display"><span id="outro-fout-val">3</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="0" max="10" step="0.5" value="3" id="outro-fout">
+            <div class="dur-range"><span>0s</span><span>10s</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="param-group" id="hl-params" style="display:none">
+        <div class="param-group-hdr">金句片段（已选 <span id="hl-count">0</span> 句）</div>
+        <div class="param-row">
+          <div class="param-slider-card">
+            <div class="param-label">背景音乐音量</div>
+            <div class="param-display"><span id="hl-bg-db-val">-22</span><span class="unit">dB</span></div>
+            <input class="dur-slider" type="range" min="-40" max="0" step="1" value="-22" id="hl-bg-db">
+            <div class="dur-range"><span>-40dB（极轻）</span><span>0dB（原音量）</span></div>
+          </div>
+          <div class="param-slider-card">
+            <div class="param-label">片段之间间隔</div>
+            <div class="param-display"><span id="hl-gap-val">3</span><span class="unit">s</span></div>
+            <input class="dur-slider" type="range" min="0" max="10" step="0.5" value="3" id="hl-gap">
+            <div class="dur-range"><span>0s</span><span>10s</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="preview-bar">
+        <button class="preview-btn" id="btn-preview-intro">▶ 试听片头</button>
+        <button class="preview-btn" id="btn-preview-outro">▶ 试听片尾</button>
+        <span class="preview-hint" id="preview-hint">上传音乐后点试听 — 会按上面参数生成 ~10 秒预览。</span>
+      </div>
+      <audio id="preview-audio" controls style="width:100%; margin-top: 16px; display:none"></audio>
+    </section>
+  </main>
+</div>
+
+<div class="player">
+  <span class="p-time mono" id="ptm">0:00</span>
+  <div class="p-track" id="ptrk"><div class="p-fill" id="pfill"><span class="p-leaf"></span></div></div>
+  <span class="p-total mono" id="pdur">0:00</span>
+  <button class="p-btn" id="pbtn">播放</button>
+</div>
+<audio id="au" src="__AUDIO_SRC__" preload="metadata"></audio>
+
+<script>
+// ============== bake-in data ==============
+const SENTENCES = __SENTENCES_DATA__;
+const SUGGESTED = __SUGGESTED_DATA__;
+const CB = window.__CLOUD_BRIDGE__ || null;
+const SESSION = CB && CB.session ? CB.session : null;
+
+const state = {
+  quotes: new Set(),
+  // 8 params total:
+  intro_dur: 15,  intro_fin: 2, intro_fout: 3,
+  outro_dur: 15,  outro_fin: 5, outro_fout: 3,
+  hl_bg_db: -22,  hl_gap: 3,
+  intro_uploaded: false,
+  intro_filename: null,
+  outro_uploaded: false,
+  outro_filename: null,
+};
+
+// File references kept for client-side preview only — they live for the
+// life of the page (lost on reload). Cloud-bridge state still has the
+// authoritative uploaded copy server-side.
+const uploadedFiles = { intro: null, outro: null };
+
+function fmtTime(s) {
+  if (!isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+const au = document.getElementById('au');
+
+function getSent(idx) { return SENTENCES.find(s => s.idx === idx); }
+function jumpAndPlay(t) {
+  if (!au) return;
+  au.currentTime = t;
+  au.play().catch(()=>{});
+}
+
+// ============== Section 1: Quotes ==============
+function renderSelected() {
+  const list = document.getElementById('qsel-list');
+  const count = document.getElementById('qsel-count');
+  list.innerHTML = '';
+  count.textContent = state.quotes.size + ' / 6';
+  if (state.quotes.size === 0) {
+    const e = document.createElement('div');
+    e.className = 'qsel-empty';
+    e.textContent = '还没选 — 在下面点 ☆ 或者保留 AI 建议的起点。';
+    list.appendChild(e);
+    return;
+  }
+  const sorted = [...state.quotes].sort((a,b)=>a-b);
+  for (const idx of sorted) {
+    const s = getSent(idx); if (!s) continue;
+    const row = document.createElement('div');
+    row.className = 'qsel-row';
+    const star = document.createElement('div'); star.className = 'qsel-star'; star.textContent = '★';
+    const time = document.createElement('div'); time.className = 'qsel-time'; time.textContent = fmtTime(s.start);
+    const text = document.createElement('div'); text.className = 'qsel-text';
+    text.innerHTML = `<span class="spk">${s.speaker || ''}</span>${escapeHtml(s.text)}`;
+    text.onclick = () => jumpAndPlay(s.start);
+    const x = document.createElement('button'); x.className = 'qsel-x'; x.textContent = '取消';
+    x.onclick = (e) => { e.stopPropagation(); state.quotes.delete(idx); save(); renderAll(); };
+    row.appendChild(star); row.appendChild(time); row.appendChild(text); row.appendChild(x);
+    list.appendChild(row);
+  }
+}
+
+function renderQuoteList() {
+  const list = document.getElementById('quote-list');
+  list.innerHTML = '';
+  for (const s of SENTENCES) {
+    const row = document.createElement('div');
+    row.className = 'qrow';
+    if (state.quotes.has(s.idx)) row.classList.add('sel');
+    if (SUGGESTED.includes(s.idx)) row.classList.add('sug');
+    const star = document.createElement('div'); star.className = 'col-star';
+    const time = document.createElement('div'); time.className = 'col-time'; time.textContent = fmtTime(s.start);
+    const spk = document.createElement('div'); spk.className = 'col-spk'; spk.textContent = s.speaker || '';
+    const text = document.createElement('div'); text.className = 'col-text';
+    text.innerHTML = escapeHtml(s.text) + (SUGGESTED.includes(s.idx) && !state.quotes.has(s.idx) ? '<span class="col-suggest">AI 建议</span>' : '');
+    row.appendChild(star); row.appendChild(time); row.appendChild(spk); row.appendChild(text);
+    row.addEventListener('click', () => {
+      jumpAndPlay(s.start);
+      if (state.quotes.has(s.idx)) state.quotes.delete(s.idx);
+      else {
+        if (state.quotes.size >= 6) { setStatus('最多 6 条金句', 'warn'); return; }
+        state.quotes.add(s.idx);
+      }
+      save();
+      renderAll();
+    });
+    list.appendChild(row);
+  }
+}
+
+// ============== Section 3: Param sliders ==============
+const SLIDER_MAP = [
+  // [slider-id, display-id, state-key, parser]
+  ['intro-dur',  'intro-dur-val',  'intro_dur',  parseInt],
+  ['intro-fin',  'intro-fin-val',  'intro_fin',  parseFloat],
+  ['intro-fout', 'intro-fout-val', 'intro_fout', parseFloat],
+  ['outro-dur',  'outro-dur-val',  'outro_dur',  parseInt],
+  ['outro-fin',  'outro-fin-val',  'outro_fin',  parseFloat],
+  ['outro-fout', 'outro-fout-val', 'outro_fout', parseFloat],
+  ['hl-bg-db',   'hl-bg-db-val',   'hl_bg_db',   parseFloat],
+  ['hl-gap',     'hl-gap-val',     'hl_gap',     parseFloat],
+];
+
+function fmtSliderVal(stateKey, v) {
+  // intro_dur / outro_dur are integers; rest with 1 decimal where needed.
+  if (stateKey === 'intro_dur' || stateKey === 'outro_dur' || stateKey === 'hl_bg_db') return String(Math.round(v));
+  return Number.isInteger(v) ? String(v) : v.toFixed(1).replace(/\.0$/, '');
+}
+
+function wireSliders() {
+  for (const [sid, dispId, key, parse] of SLIDER_MAP) {
+    const slider = document.getElementById(sid);
+    if (!slider) continue;
+    slider.addEventListener('input', () => {
+      const v = parse(slider.value);
+      state[key] = v;
+      const dispEl = document.getElementById(dispId);
+      if (dispEl) dispEl.textContent = fmtSliderVal(key, v);
+      save();
+      renderSidebar();
+      updatePreviewButtonsState();
+    });
+  }
+}
+
+function refreshHighlightsParamsVisibility() {
+  const hlParams = document.getElementById('hl-params');
+  const hlCount = document.getElementById('hl-count');
+  if (!hlParams) return;
+  if (state.quotes.size > 0) {
+    hlParams.style.display = '';
+    if (hlCount) hlCount.textContent = state.quotes.size;
+  } else {
+    hlParams.style.display = 'none';
+  }
+}
+
+// ============== Section 3 (preview) ==============
+let audioCtx = null;
+function ensureAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+async function decodeUploadedSlot(slot) {
+  // Prefer the in-memory File from this session (fastest, works for both
+  // local and cloud mode). If the page was reloaded and we lost it, fall
+  // back to fetching from cloud-bridge.
+  const file = uploadedFiles[slot];
+  if (file) {
+    const buf = await file.arrayBuffer();
+    return ensureAudioCtx().decodeAudioData(buf);
+  }
+  if (SESSION) {
+    // theme_<slot>.* served by cloud-bridge; mastering-music endpoint TBD.
+    // For now, fall back to user re-uploading. This branch only matters on
+    // page reload; the normal "upload-then-preview" flow goes through the
+    // File reference above.
+    throw new Error('上传的文件已不在内存里 — 请重新拖一次音乐');
+  }
+  throw new Error('请先上传' + (slot === 'intro' ? '片头' : '片尾') + '音乐');
+}
+
+// Render a single slot's preview (intro or outro) into a downloadable Blob.
+// Trims to total_dur, applies fade-in and fade-out via GainNode, plays back.
+async function generatePreview(slot) {
+  const dur = state[slot + '_dur'];
+  const fin = state[slot + '_fin'];
+  const fout = state[slot + '_fout'];
+  // Validate fades fit in dur
+  if (fin + fout > dur + 0.01) {
+    throw new Error(`渐入 ${fin}s + 渐出 ${fout}s 超过总时长 ${dur}s — 调一下`);
+  }
+  const decoded = await decodeUploadedSlot(slot);
+  const sr = decoded.sampleRate;
+  const ch = decoded.numberOfChannels;
+  const totalSamples = Math.round(dur * sr);
+  const ctx = new OfflineAudioContext(ch, totalSamples, sr);
+
+  const src = ctx.createBufferSource();
+  src.buffer = decoded;
+
+  const gain = ctx.createGain();
+  // Fade-in
+  gain.gain.setValueAtTime(0, 0);
+  gain.gain.linearRampToValueAtTime(1, fin > 0 ? fin : 0.001);
+  // Hold at 1 until fade-out begins
+  const foutStart = Math.max(fin, dur - fout);
+  gain.gain.setValueAtTime(1, foutStart);
+  gain.gain.linearRampToValueAtTime(0, dur);
+
+  src.connect(gain).connect(ctx.destination);
+  src.start(0, 0, dur);
+  const rendered = await ctx.startRendering();
+
+  // Encode as WAV for <audio> playback
+  return audioBufferToWavBlob(rendered);
+}
+
+function audioBufferToWavBlob(buf) {
+  // 16-bit PCM WAV. Cheap and Safari-friendly.
+  const numChan = buf.numberOfChannels, sr = buf.sampleRate, n = buf.length;
+  const bytesPerSample = 2;
+  const dataLen = n * numChan * bytesPerSample;
+  const ab = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(ab);
+  let p = 0;
+  function s(str) { for (let i = 0; i < str.length; i++) v.setUint8(p++, str.charCodeAt(i)); }
+  function w16(x) { v.setUint16(p, x, true); p += 2; }
+  function w32(x) { v.setUint32(p, x, true); p += 4; }
+  s('RIFF'); w32(36 + dataLen); s('WAVE');
+  s('fmt '); w32(16); w16(1); w16(numChan); w32(sr); w32(sr * numChan * bytesPerSample);
+  w16(numChan * bytesPerSample); w16(16);
+  s('data'); w32(dataLen);
+  // Interleave channels
+  const chans = []; for (let c = 0; c < numChan; c++) chans.push(buf.getChannelData(c));
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < numChan; c++) {
+      let s = Math.max(-1, Math.min(1, chans[c][i]));
+      v.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      p += 2;
+    }
+  }
+  return new Blob([ab], { type: 'audio/wav' });
+}
+
+async function previewSlot(slot) {
+  const btn = document.getElementById('btn-preview-' + slot);
+  const previewAudio = document.getElementById('preview-audio');
+  const oldText = btn.textContent;
+  btn.disabled = true; btn.textContent = '生成中…';
+  try {
+    const blob = await generatePreview(slot);
+    previewAudio.src = URL.createObjectURL(blob);
+    previewAudio.style.display = 'block';
+    previewAudio.play().catch(()=>{});
+  } catch (e) {
+    alert(e.message || String(e));
+  } finally {
+    btn.disabled = false; btn.textContent = oldText;
+  }
+}
+
+function updatePreviewButtonsState() {
+  const introBtn = document.getElementById('btn-preview-intro');
+  const outroBtn = document.getElementById('btn-preview-outro');
+  if (introBtn) introBtn.disabled = !uploadedFiles.intro;
+  if (outroBtn) outroBtn.disabled = !uploadedFiles.outro;
+  const hint = document.getElementById('preview-hint');
+  if (hint) {
+    if (!uploadedFiles.intro && !uploadedFiles.outro) hint.textContent = '上传音乐后点试听 — 会按上面参数生成 ~10 秒预览。';
+    else hint.textContent = '试听只用片头/片尾音乐 + 渐入渐出（金句 mix 在 agent 那边做）。';
+  }
+}
+
+// ============== Section 2: Uploads ==============
+function wireUploads() {
+  for (const drop of document.querySelectorAll('.drop')) {
+    const slot = drop.dataset.slot;
+    const fileInput = drop.querySelector('[data-file]');
+    const labelEl = drop.querySelector('[data-label]');
+    const metaEl = drop.querySelector('[data-meta]');
+    const fillEl = drop.querySelector('[data-fill]');
+    const audioEl = drop.querySelector('[data-preview]');
+
+    function setUI(s) {
+      drop.classList.remove('hover','busy','done','fail');
+      if (s.cls) drop.classList.add(s.cls);
+      if (s.label) labelEl.textContent = s.label;
+      if (s.meta != null) metaEl.textContent = s.meta;
+      if (s.fill != null) fillEl.style.width = s.fill + '%';
+    }
+
+    function pickAndUpload(file) {
+      if (!file) return;
+      // Keep an in-memory reference for client-side preview.
+      uploadedFiles[slot] = file;
+      updatePreviewButtonsState();
+      if (!SESSION) {
+        setUI({ cls: 'done', label: file.name, meta: fmtBytes(file.size) + ' · 本地模式仅记录' });
+        state[slot + '_uploaded'] = false;
+        state[slot + '_filename'] = file.name;
+        audioEl.src = URL.createObjectURL(file);
+        audioEl.style.display = 'block';
+        save(); renderSidebar();
+        return;
+      }
+      setUI({ cls: 'busy', label: '上传中', meta: file.name, fill: 0 });
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/${SESSION}/mastering-upload?slot=${slot}`, true);
+      xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) setUI({ fill: (e.loaded/e.total)*100 });
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          state[slot + '_uploaded'] = true;
+          state[slot + '_filename'] = file.name;
+          setUI({ cls: 'done', label: '已上传', meta: `${file.name} · ${fmtBytes(file.size)}`, fill: 100 });
+          audioEl.src = URL.createObjectURL(file);
+          audioEl.style.display = 'block';
+          save(); renderSidebar();
+        } else {
+          let msg = 'HTTP ' + xhr.status;
+          try { msg += ' ' + (JSON.parse(xhr.responseText).error || ''); } catch {}
+          setUI({ cls: 'fail', label: '上传失败', meta: msg });
+        }
+      };
+      xhr.onerror = () => setUI({ cls: 'fail', label: '网络出错', meta: '重试一下' });
+      xhr.send(file);
+    }
+
+    drop.addEventListener('click', e => {
+      if (e.target.tagName === 'AUDIO') return;
+      if (drop.classList.contains('busy')) return;
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', () => pickAndUpload(fileInput.files[0]));
+    ['dragenter','dragover'].forEach(ev =>
+      drop.addEventListener(ev, e => { e.preventDefault(); if (!drop.classList.contains('busy')) drop.classList.add('hover'); }));
+    ['dragleave','drop'].forEach(ev =>
+      drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hover'); }));
+    drop.addEventListener('drop', e => {
+      if (drop.classList.contains('busy')) return;
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      pickAndUpload(f);
+    });
+  }
+}
+
+// ============== Sidebar nav + summary ==============
+function renderSidebar() {
+  document.getElementById('sb-total').textContent = SENTENCES.length + ' 句';
+  document.getElementById('sb-quotes').textContent = state.quotes.size + ' / 6 选中';
+  const i = state.intro_uploaded ? '✓ 片头' : (state.intro_filename ? '○ 片头(本地)' : '○ 片头待上传');
+  const o = state.outro_uploaded ? '✓ 片尾' : (state.outro_filename ? '○ 片尾(本地)' : '○ 片尾待上传');
+  document.getElementById('sb-uploads').textContent = `${i} · ${o}`;
+  document.getElementById('sb-params').textContent =
+    `片头 ${state.intro_dur}s · 片尾 ${state.outro_dur}s` +
+    (state.quotes.size > 0 ? ` · 金句 ${state.hl_bg_db}dB` : '');
+}
+function wireNav() {
+  const items = document.querySelectorAll('.nav-item');
+  items.forEach(it => {
+    it.addEventListener('click', e => {
+      e.preventDefault();
+      const target = document.querySelector(it.dataset.target);
+      if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+      items.forEach(x => x.classList.remove('active'));
+      it.classList.add('active');
+    });
+  });
+}
+
+// ============== Save / commit ==============
+const SK = 'mastering_' + (document.title || 'default');
+const SLIDER_KEYS = ['intro_dur','intro_fin','intro_fout','outro_dur','outro_fin','outro_fout','hl_bg_db','hl_gap'];
+
+function save() {
+  try {
+    const snap = { quotes: [...state.quotes] };
+    for (const k of SLIDER_KEYS) snap[k] = state[k];
+    for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) snap[k] = state[k];
+    localStorage.setItem(SK, JSON.stringify(snap));
+  } catch {}
+}
+
+function applySliderStateToDOM() {
+  // Push state values back into the slider DOM after restoreLocal / loadFromServer.
+  for (const [sid, dispId, key] of SLIDER_MAP) {
+    const slider = document.getElementById(sid);
+    const dispEl = document.getElementById(dispId);
+    if (slider) slider.value = state[key];
+    if (dispEl) dispEl.textContent = fmtSliderVal(key, state[key]);
+  }
+}
+
+function restoreLocal() {
+  try {
+    const raw = localStorage.getItem(SK); if (!raw) return;
+    const s = JSON.parse(raw);
+    if (Array.isArray(s.quotes)) { state.quotes.clear(); s.quotes.forEach(i => state.quotes.add(i)); }
+    for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
+    for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
+      if (s[k] != null) state[k] = s[k];
+    }
+  } catch {}
+}
+function setStatus(msg, kind) {
+  const el = document.getElementById('cb-status');
+  el.textContent = msg;
+  el.style.color = kind === 'warn' ? '#8a3a30' : (kind === 'ok' ? '#3a6a4a' : 'var(--muted)');
+}
+function buildPayload() {
+  const payload = {
+    quotes: [...state.quotes].sort((a,b)=>a-b).map(idx => {
+      const s = getSent(idx);
+      return s ? { idx, start: s.start, end: s.end, speaker: s.speaker, text: s.text } : null;
+    }).filter(Boolean),
+    intro_uploaded: state.intro_uploaded, intro_filename: state.intro_filename,
+    outro_uploaded: state.outro_uploaded, outro_filename: state.outro_filename,
+    timestamp: Date.now(),
+  };
+  for (const k of SLIDER_KEYS) payload[k] = state[k];
+  return payload;
+}
+async function postState(commit) {
+  if (!SESSION) {
+    const blob = new Blob([JSON.stringify(buildPayload(), null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (commit ? 'mastering_commit.json' : 'mastering_draft.json'); a.click();
+    setStatus(commit ? '本地模式 · 提交 JSON 已下载' : '本地模式 · 进度 JSON 已下载', commit ? 'ok' : null);
+    return;
+  }
+  const ep = commit ? 'mastering-commit' : 'mastering-save';
+  setStatus(commit ? '提交中…' : '保存中…');
+  try {
+    const r = await fetch(`/api/${SESSION}/${ep}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(buildPayload()),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (commit) {
+      setStatus('✓ 已提交 · agent 开始后期', 'ok');
+      document.getElementById('btn-save').disabled = true;
+      document.getElementById('btn-commit').disabled = true;
+    } else {
+      setStatus('✓ 已保存 ' + new Date().toLocaleTimeString(), 'ok');
+    }
+  } catch (e) {
+    setStatus('✗ ' + e.message, 'warn');
+  }
+}
+document.getElementById('btn-save').onclick = () => postState(false);
+document.getElementById('btn-commit').onclick = async () => {
+  if (state.quotes.size < 1) { alert('至少选 1 条金句'); return; }
+  if (!state.intro_uploaded && !state.intro_filename) {
+    if (!confirm('片头音乐还没上传，确定提交？')) return;
+  }
+  await postState(true);
+};
+async function loadFromServer() {
+  if (!SESSION) return;
+  try {
+    const r = await fetch(`/api/${SESSION}/state`); if (!r.ok) return;
+    const s = await r.json();
+    if (s.initial) { setStatus('新 session · 开始编辑'); return; }
+    if (Array.isArray(s.quotes)) { state.quotes.clear(); for (const q of s.quotes) state.quotes.add(q.idx); }
+    for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
+    for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
+      if (s[k] != null) state[k] = s[k];
+    }
+    setStatus('已从 server 同步');
+  } catch {}
+}
+
+// ============== Player wire (minimal) ==============
+function wirePlayer() {
+  const tm = document.getElementById('ptm'); const pdur = document.getElementById('pdur');
+  const ptrk = document.getElementById('ptrk'); const pfill = document.getElementById('pfill');
+  const pbtn = document.getElementById('pbtn');
+  au.addEventListener('loadedmetadata', () => { pdur.textContent = fmtTime(au.duration); });
+  au.addEventListener('timeupdate', () => {
+    tm.textContent = fmtTime(au.currentTime);
+    const p = au.duration ? (au.currentTime / au.duration) * 100 : 0;
+    pfill.style.width = p + '%';
+  });
+  au.addEventListener('play', () => pbtn.textContent = '暂停');
+  au.addEventListener('pause', () => pbtn.textContent = '播放');
+  pbtn.addEventListener('click', () => { if (au.paused) au.play(); else au.pause(); });
+  ptrk.addEventListener('mousedown', e => {
+    const rect = ptrk.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (au.duration) au.currentTime = pct * au.duration;
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+function renderAll() {
+  renderSelected();
+  renderQuoteList();
+  renderSidebar();
+  refreshHighlightsParamsVisibility();
+}
+function initSuggested() { for (const i of SUGGESTED) state.quotes.add(i); }
+
+(async function init(){
+  if (SESSION) au.src = `/api/${SESSION}/audio`;
+  initSuggested();
+  restoreLocal();
+  await loadFromServer();
+  applySliderStateToDOM();
+  wireSliders();
+  wireUploads();
+  wireNav();
+  wirePlayer();
+  // preview buttons
+  const ib = document.getElementById('btn-preview-intro');
+  const ob = document.getElementById('btn-preview-outro');
+  if (ib) ib.addEventListener('click', () => previewSlot('intro'));
+  if (ob) ob.addEventListener('click', () => previewSlot('outro'));
+  updatePreviewButtonsState();
+  renderAll();
+  if (SESSION) setStatus('已连接 · 自动 30s 保存');
+})();
+
+setInterval(() => { if (SESSION) postState(false).catch(()=>{}); }, 30000);
+</script>
+</body>
+</html>

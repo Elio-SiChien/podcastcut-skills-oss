@@ -9,11 +9,15 @@
  * 路由：
  *   GET  /r/:session            — 渲染 review HTML（kind="review"）
  *   GET  /u/:session            — 渲染 upload HTML（kind="upload"），用户拖音频上来
+ *   GET  /m/:session            — 渲染 mastering HTML（kind="mastering"），后期 UI
  *   GET  /api/:session/state    — 返回当前 draft / committed / upload 状态
- *   POST /api/:session/save     — 写 draft（review session）
- *   POST /api/:session/commit   — 写 final + 触发 commit 文件（review session）
- *   GET  /api/:session/audio    — proxy 已存在音频，支持 Range（review session）
+ *   POST /api/:session/save     — 写 draft（review / mastering session 通用）
+ *   POST /api/:session/commit   — 写 final + 触发 commit 文件
+ *   GET  /api/:session/audio    — proxy 已存在音频，支持 Range
  *   POST /api/:session/upload   — 流式接收用户上传的音频（upload session）
+ *   POST /api/:session/mastering-upload?slot=intro|outro
+ *                               — mastering session 内的音乐切片上传
+ *                                 落到 base_dir/3_后期/theme_<slot>.<ext>
  *
  * Session 文件布局：
  *   $SESSIONS_DIR/<session>/
@@ -116,6 +120,87 @@ async function handleSave(s, req, res, commit) {
   writeMeta(s, meta);
   console.log(`[${s}] ${commit ? 'COMMIT' : 'save'} at ${new Date(body.received_at).toISOString()}`);
   send(res, 200, { ok: true, status: meta.status });
+}
+
+function handleMasteringPage(s, res) {
+  const meta = readMeta(s);
+  if (!meta || meta.kind !== 'mastering') return sendErr(res, 404, 'session not found');
+  if (!meta.mastering_html_path) return sendErr(res, 500, 'meta.mastering_html_path missing');
+  fs.readFile(meta.mastering_html_path, 'utf8', (err, html) => {
+    if (err) return sendErr(res, 500, 'mastering html read error');
+    const inject = `<script>window.__CLOUD_BRIDGE__={session:"${s}",kind:"mastering"};</script>`;
+    const out = html.replace('</head>', inject + '</head>');
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(out);
+  });
+}
+
+function handleMasteringUpload(s, req, res, slot) {
+  if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
+  const meta = readMeta(s);
+  if (!meta || meta.kind !== 'mastering') return sendErr(res, 400, 'not a mastering session');
+  if (meta.status === 'committed') return sendErr(res, 409, 'session already committed');
+  if (slot !== 'intro' && slot !== 'outro') return sendErr(res, 400, 'slot must be intro or outro');
+  if (!meta.base_dir) return sendErr(res, 500, 'meta.base_dir missing');
+
+  const declaredLen = parseInt(req.headers['content-length'] || '0', 10);
+  const cap = Number(meta.upload_cap_bytes) || (200 * 1024 * 1024); // 200 MB default for music files
+  if (!declaredLen) return sendErr(res, 411, 'content-length required');
+  if (declaredLen > cap) return sendErr(res, 413, `payload > ${cap} bytes`);
+
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  if (!(ct.startsWith('audio/') || ct === 'application/octet-stream' || ct === '')) {
+    return sendErr(res, 415, `unsupported content-type: ${ct}`);
+  }
+
+  // Infer extension from content-type so the agent's downstream ffmpeg call
+  // doesn't have to sniff. Falls back to .mp3 (most common).
+  const ext = ct.includes('mp4') || ct.includes('m4a') ? '.m4a'
+            : ct.includes('wav') ? '.wav'
+            : ct.includes('ogg') ? '.ogg'
+            : '.mp3';
+  const destDir = path.join(meta.base_dir, '3_后期');
+  fs.mkdirSync(destDir, { recursive: true });
+  const dest = path.join(destDir, `theme_${slot}${ext}`);
+  const partial = dest + '.partial';
+
+  const out = fs.createWriteStream(partial);
+  let received = 0;
+  let failed = false;
+  const finish = (ok, errMsg) => {
+    if (failed) return;
+    failed = !ok;
+    out.end(() => {
+      const currentMeta = readMeta(s) || meta;
+      if (ok) {
+        try { fs.renameSync(partial, dest); }
+        catch (e) { ok = false; errMsg = 'rename failed: ' + e.message; }
+      }
+      if (!ok) { try { fs.unlinkSync(partial); } catch {} }
+      currentMeta.slots = currentMeta.slots || {};
+      currentMeta.slots[slot] = ok
+        ? { path: dest, bytes: received, uploaded_at: Date.now() }
+        : { error: errMsg, failed_at: Date.now() };
+      writeMeta(s, currentMeta);
+      console.log(`[${s}] mastering-upload[${slot}] ${ok ? 'DONE' : 'FAIL'} (${received} bytes)`);
+      if (!res.headersSent) {
+        send(res, ok ? 200 : 500, ok ? { ok: true, bytes: received, path: dest } : { ok: false, error: errMsg });
+      }
+    });
+  };
+
+  req.on('data', chunk => {
+    received += chunk.length;
+    if (received > cap) { finish(false, `exceeded cap ${cap}`); req.destroy(); }
+  });
+  req.on('aborted', () => finish(false, 'client aborted'));
+  req.on('error', e => finish(false, 'req error: ' + e.message));
+  out.on('error', e => finish(false, 'disk error: ' + e.message));
+  req.pipe(out);
+  req.on('end', () => {
+    if (received !== declaredLen) return finish(false, `truncated: declared ${declaredLen}, got ${received}`);
+    finish(true);
+  });
 }
 
 function handleUploadPage(s, res) {
@@ -254,7 +339,7 @@ function handleAudio(s, req, res) {
 const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
   const m = parsed.pathname.match(
-    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|audio|upload))$/
+    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|audio|upload|mastering-save|mastering-commit|mastering-upload))$/
   );
   if (!m) {
     if (parsed.pathname === '/health') return send(res, 200, { ok: true, sessions_dir: SESSIONS_DIR });
@@ -262,15 +347,23 @@ const server = http.createServer(async (req, res) => {
   }
   const reviewSess = m[1];
   const uploadSess = m[2];
-  const apiSess = m[3];
-  const action = m[4] || (reviewSess ? 'review_page' : 'upload_page');
+  const masteringSess = m[3];
+  const apiSess = m[4];
+  const action = m[5] || (reviewSess ? 'review_page' : (uploadSess ? 'upload_page' : 'mastering_page'));
   if (action === 'review_page') return handleReviewPage(reviewSess, res);
   if (action === 'upload_page') return handleUploadPage(uploadSess, res);
+  if (action === 'mastering_page') return handleMasteringPage(masteringSess, res);
   if (action === 'state' && req.method === 'GET') return handleGetState(apiSess, res);
   if (action === 'save' && req.method === 'POST') return handleSave(apiSess, req, res, false);
   if (action === 'commit' && req.method === 'POST') return handleSave(apiSess, req, res, true);
   if (action === 'audio' && (req.method === 'GET' || req.method === 'HEAD')) return handleAudio(apiSess, req, res);
   if (action === 'upload' && req.method === 'POST') return handleUploadPost(apiSess, req, res);
+  if (action === 'mastering-save' && req.method === 'POST') return handleSave(apiSess, req, res, false);
+  if (action === 'mastering-commit' && req.method === 'POST') return handleSave(apiSess, req, res, true);
+  if (action === 'mastering-upload' && req.method === 'POST') {
+    const slot = (parsed.query && parsed.query.slot) || '';
+    return handleMasteringUpload(apiSess, req, res, slot);
+  }
   return sendErr(res, 405, 'method not allowed');
 });
 
