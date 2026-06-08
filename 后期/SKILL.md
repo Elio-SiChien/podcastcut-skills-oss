@@ -9,6 +9,18 @@ description: 播客最终润色。高亮片段预览、片头背景音乐、时�
 
 ---
 
+## 🚨 Path bootstrap — 跑 bash 前必做
+
+`$SKILL_DIR` 不是自动环境变量。下面所有 `bash "$SKILL_DIR/..."` 调用前先解析一次：
+
+```bash
+SKILL_DIR="$(readlink -f ~/.claude/skills/podcastcut-后期)"
+```
+
+（同样原则适用所有 podcastcut skill。详见 `edit-chat/SKILL.md` 顶部踩坑笔记。）
+
+---
+
 ## 推荐路径：网页 UI（cloud-bridge mastering session）
 
 > 2026-06-03 加：原来的"chat 一问一答收集 4 件事 + 确认时长方案"流程仍可用（见下），但**推荐**先生成 `mastering.html` 并通过 cloud-bridge 把链接发给用户。用户在一页里完成 3 件事：

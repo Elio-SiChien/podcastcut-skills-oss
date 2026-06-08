@@ -18,6 +18,14 @@ pos: chat 服务的入口 skill；后续 edit-chat 读这个 profile
 
 > 通过对话设置一档播客的 profile，复用屏 1 的 6 个字段。一档播客一次 onboarding；之后每期剪辑都用这个 profile。
 
+## 🚨 Path bootstrap — 跑 bash 前必做
+
+```bash
+SKILL_DIR="$(readlink -f ~/.claude/skills/podcastcut-onboarding-chat)"
+```
+
+（同样原则适用所有 podcastcut skill。详见 `edit-chat/SKILL.md` 顶部踩坑笔记。）
+
 ## 使用场景
 
 - 新用户第一次发音频 → 没 profile → 自动跑这个 skill

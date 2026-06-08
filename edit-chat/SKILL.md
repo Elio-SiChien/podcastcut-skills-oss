@@ -19,6 +19,21 @@ pos: chat 服务的主流程 skill；调度现有 6 个 skill
 
 > 用户扔 audio attachment 进对话，我负责开剪。每个阶段在 chat 里报告，关键 checkpoint 给用户决策。
 
+## 🚨 Path bootstrap — 跑任何 bash 之前必做
+
+Claude Code 把这个 skill 挂载在 `~/.claude/skills/podcastcut-edit-chat`（一个 symlink）。下面所有 bash snippet 都用 `$SKILL_DIR/...` 引路径，**`$SKILL_DIR` 不是环境变量自动设的**——你（agent）每次跑 bash 之前必须先解析一次：
+
+```bash
+SKILL_DIR="$(readlink -f ~/.claude/skills/podcastcut-edit-chat)"
+# 现在 $SKILL_DIR = .../podcastcut-skills/edit-chat
+```
+
+跳过这步 → `$SKILL_DIR/../cloud-bridge/current_tunnel_url.txt` 展开成 `./../cloud-bridge/...`，从你 workspace cwd 找不到，会**误以为 cloud-bridge 没起、错误退回 file:// 流程**（2026-06-08 的 pike 踩坑实例）。
+
+Cloud-bridge 实际是 launchd 永久跑着的（PR #41 + #56），URL 文件**永远在**——找不到 100% 是路径解析问题，不是服务问题。
+
+---
+
 ## 触发
 
 用户在 DM / channel 给我发音频 attachment（mp3 / m4a / wav）+ 任意意图文字。例如：

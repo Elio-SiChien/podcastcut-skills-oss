@@ -12,6 +12,14 @@ description: |
 
 # Dispatcher — per-podcaster agent provisioning
 
+## 🚨 Path bootstrap — 跑 bash 前必做
+
+```bash
+SKILL_DIR="$(readlink -f ~/.claude/skills/podcastcut-dispatcher)"
+```
+
+（同样原则适用所有 podcastcut skill。详见 `edit-chat/SKILL.md` 顶部踩坑笔记。）
+
 > Background: a single @podcast-editor-agent serializes all work — when
 > podcaster A is mid-episode, podcaster B's message has to wait. Once we
 > have N ≥ 2 podcasters, the right move is **one Slock agent per
