@@ -5,7 +5,9 @@ description: |
   podcaster client, this skill drafts the `agent:create` action card so the
   operator commits the spawn under their own identity. Each podcaster gets
   their own @podcast-editor-<slug> with isolated workspace + memory.
-  触发词：新 podcaster、给 X 创建一个 agent、spawn agent
+  触发词：为 X 创建一个 agent、给 X 建/分一个 agent、spawn 一个 agent 给 X、
+  帮 X 建/创建一个 dedicated agent、新 podcaster 进来、dedicated agent for X、
+  开一个专门给 X 的 agent
 ---
 
 # Dispatcher — per-podcaster agent provisioning
@@ -19,19 +21,54 @@ description: |
 
 ## When to invoke
 
-- A new podcaster client joins the workspace and wants edits.
-- The operator says "为 X 创建一个 agent" / "spawn 一个 agent 给 X".
-- The operator decides an existing podcaster needs a dedicated agent
-  separate from the shared @podcast-editor-agent.
+Trigger on any of these phrasings (and close variants — semantic
+match, not exact-string match):
+
+- "为 X 创建一个 agent"
+- "给 X 建 / 建一个 / 分配一个 agent"
+- "帮 X 建 / 创建一个 agent" (when context = X is a podcaster, not "X
+  is asking for editing help")
+- "为 X 单独建一个 agent" / "为 X 专门建一个 agent" / "open dedicated agent for X"
+- "spawn 一个 agent 给 X" / "spawn X agent"
+- "新 podcaster 进来" / "新客户接入" + 任何 spawn 语义
+- 操作者明确说"我要给我每个 podcaster 一个独立的 agent" 这类架构 intent
+
+Common signal words: **spawn / 新建 / 单独 / 专门 / dedicated /
+分配 / 分一个 / 建一个 / 给 X 一个 / 多 podcaster 隔离**.
 
 If a podcaster only has one episode planned and the shared agent isn't
 saturated, **just use the shared agent** — provisioning is reversible
 later but does add an @-mention to remember.
 
+## ❌ When NOT to invoke
+
+The trigger phrase is intentionally narrow because edit-chat shares
+overlapping vocabulary. **Do NOT** invoke dispatcher when:
+
+- "帮 X 剪一下这期" / "帮 X 剪辑" / "为 X 处理这个音频" → this is
+  edit-chat, not dispatcher. The operator wants the **current agent**
+  to do the editing for X, not to spawn a new agent.
+- "我是 X 的剪辑 agent" / "你是辟客的助手吧" → identity / role
+  framing; the answer is to BE the agent, not to spawn a new one.
+- "帮辟客创建一个播客剪辑 agent" without further "单独/新/dedicated" —
+  AMBIGUOUS. Default: ask the operator one clarifying question
+  ("你是想新开一个专门给辟客的 agent 还是让我（当前 agent）当辟客的助手？")
+  rather than guess.
+- Anything where the new agent's name wouldn't be `@podcast-editor-<slug>`
+  — dispatcher is purpose-built for the per-podcaster pattern, not a
+  general agent-spawning utility.
+
+When in doubt: **clarify first, draft second**. A wrong action card
+posts spam to the operator's DM and costs them a delete; a clarifying
+question costs them one sentence.
+
 ## What it does
 
-Wraps `slock action prepare --variant agent:create` so the operator
-sees a one-click "Create Agent" card in chat with the right name +
+Wraps `slock action prepare` with `type: "agent:create"` (note: the
+agent-knowledge docs use the word "variant" in prose but the actual
+JSON field is `type` — confirmed via INVALID_ACTION rejection on
+2026-06-08). The operator sees a one-click "Create Agent" card in
+chat with the right name +
 description pre-filled. The operator clicks → standard Create Agent
 dialog opens with prefilled values → operator picks Computer / Runtime
 / Model (agent can't prefill those) → submit.

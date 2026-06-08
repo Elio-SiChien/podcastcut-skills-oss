@@ -34,11 +34,18 @@ Claude Code 从 `~/.claude/skills/` 目录发现 skills。需要创建 symlink �
 PODCASTCUT_DIR="/path/to/podcastcut"
 
 # 创建 symlinks
-ln -s "$PODCASTCUT_DIR/安装"      ~/.claude/skills/podcastcut-安装
-ln -s "$PODCASTCUT_DIR/剪播客"    ~/.claude/skills/podcastcut-剪播客
-ln -s "$PODCASTCUT_DIR/后期"      ~/.claude/skills/podcastcut-后期
-ln -s "$PODCASTCUT_DIR/质检"      ~/.claude/skills/podcastcut-质检
-ln -s "$PODCASTCUT_DIR/音质处理"  ~/.claude/skills/podcastcut-音质处理
+ln -s "$PODCASTCUT_DIR/安装"            ~/.claude/skills/podcastcut-安装
+ln -s "$PODCASTCUT_DIR/剪播客"          ~/.claude/skills/podcastcut-剪播客
+ln -s "$PODCASTCUT_DIR/粗剪"            ~/.claude/skills/podcastcut-粗剪
+ln -s "$PODCASTCUT_DIR/精剪"            ~/.claude/skills/podcastcut-精剪
+ln -s "$PODCASTCUT_DIR/转录"            ~/.claude/skills/podcastcut-转录
+ln -s "$PODCASTCUT_DIR/执行"            ~/.claude/skills/podcastcut-执行
+ln -s "$PODCASTCUT_DIR/后期"            ~/.claude/skills/podcastcut-后期
+ln -s "$PODCASTCUT_DIR/质检"            ~/.claude/skills/podcastcut-质检
+ln -s "$PODCASTCUT_DIR/音质处理"        ~/.claude/skills/podcastcut-音质处理
+ln -s "$PODCASTCUT_DIR/edit-chat"       ~/.claude/skills/podcastcut-edit-chat
+ln -s "$PODCASTCUT_DIR/onboarding-chat" ~/.claude/skills/podcastcut-onboarding-chat
+ln -s "$PODCASTCUT_DIR/dispatcher"      ~/.claude/skills/podcastcut-dispatcher
 ```
 
 验证：在 Claude Code 中按 `/`，应该能看到 `podcastcut-安装`、`podcastcut-剪播客` 等。
