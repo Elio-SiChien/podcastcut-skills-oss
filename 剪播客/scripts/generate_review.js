@@ -4,7 +4,9 @@
  *
  * 读取转录和分析数据，注入橄榄绿编辑式模板。
  * - 不传 `--fine` → 粗剪态，输出文件名默认 `review_roughcut.html`、导出 `delete_segments_roughcut.json`
+ *   页面 main-title 注入 "粗剪逐字稿"
  * - 传 `--fine fine_analysis.json` → 精剪态（FE 非空），输出文件名按约定为 `review_enhanced.html`、导出 `delete_segments_edited.json`
+ *   页面 main-title 注入 "精剪逐字稿"
  *
  * 用法: node generate_review.js [options]
  *   --sentences   sentences.txt 路径
@@ -203,7 +205,12 @@ if (analysis.chapters && analysis.chapters.length > 0) {
       desc: ''
     });
   }
-  console.log(`   章节: ${CHAPS.length} (自动生成)`);
+  console.warn('');
+  console.warn('   ⚠️  WARNING: analysis 缺 chapters 字段，已用 fallback 自动均分');
+  console.warn('       fallback 把每段第一句话当 title、desc 留空，用户在审查页无法靠章节筛选');
+  console.warn('       请回到上游（粗剪 SKILL.md 步骤 2 / 精剪同上游）补 chapters: [{range,title,desc}]');
+  console.warn(`       生成了 ${CHAPS.length} 个均分章节作为 fallback`);
+  console.warn('');
 }
 
 // ===== 精剪阶段数据（FE / 粗剪导出）=====
@@ -338,6 +345,7 @@ template = template.replace('__INCOMING_SILENCES_DATA__', JSON.stringify(INCOMIN
 template = template.replace(/__AUDIO_SRC__/g, audioSrc);
 template = template.replace(/__TITLE__/g, title);
 template = template.replace(/__PROJECT_NAME__/g, title);
+template = template.replace(/__STAGE_TITLE__/g, fineFile ? '精剪逐字稿' : '粗剪逐字稿');
 
 fs.writeFileSync(outputFile, template);
 const sizeKB = Math.round(fs.statSync(outputFile).size / 1024);

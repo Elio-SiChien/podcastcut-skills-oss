@@ -90,7 +90,8 @@ const profile = require(`${BASE_DIR}/profile.json`);
 5. 如仍需删减，按 `profile.default_aggressiveness` 阈值识别信息密度低的段落 → `delete`
 6. **质量优化扫描**（始终执行）：扫描啰嗦重复/过度展开/弱相关细节 → `suggest_delete`，但 glossary 词所在句不进
 7. 微调每个删除块的边界切点（避免在 glossary 词上切）
-8. 写出 `2_分析/semantic_deep_analysis.json`
+8. **写章节导航**：基于通读时划分的话题段落，写出 `chapters` 数组（详见下面 schema）—— **必填**，用户在审查页靠这个跳话题筛选
+9. 写出 `2_分析/semantic_deep_analysis.json`
 
 **6 种删除类型**：
 
@@ -117,12 +118,26 @@ const profile = require(`${BASE_DIR}/profile.json`);
     { "sentenceIdx": 0, "speaker": "响歌歌", "action": "delete", "blockId": 1, "type": "pre_show" },
     { "sentenceIdx": 20, "speaker": "清扬", "action": "keep" }
   ],
+  "chapters": [
+    { "range": [20, 230], "title": "嘉宾自我介绍 + 工作背景", "desc": "清扬讲她从 X 大学博士到现在做 Y 行业的路径；为下面的访谈定基调。" },
+    { "range": [231, 580], "title": "Y 行业的日常工作流", "desc": "拆解日常 task：上午做 A、下午做 B；穿插一个跟 P 项目相关的故事。" }
+  ],
   "summary": { "totalSentences": 1404, "deleteSentences": 227, "deleteBlocks": 13, "totalDeleteDuration": "14:23", "deleteRatio": "16.2%" }
 }
 ```
 - `blocks` — 段落级，供人工审核看大块删了什么
 - `sentences` — 逐句级，供审查页/下游脚本消费；删句 `action:"delete"`、质量优化 `action:"suggest_delete"`、保留 `action:"keep"`
-- 可选 `chapters`（AI 章节分段）：审查页有就用，无则自动均分
+- `chapters` — **必填**字段，用户在审查页靠章节导航跳话题做筛选。三字段约束：
+  - `range: [startIdx, endIdx]` — 章节覆盖的 sentence idx 区间，**必须连续覆盖全期**（前一章节 endIdx + 1 = 下一章节 startIdx）
+  - `title` — 一句概括的话题标题（**不是**第一句话原文）。示例 "嘉宾自我介绍 + 工作背景"、"⭐ 核心观点：物的一生"（用户钦点段加 ⭐ 前缀）
+  - `desc` — 2-3 句话总结这一章节聊了什么、出现了哪些关键概念/嘉宾故事。用户没有 desc 就无法在不试听的情况下判断要不要删整章
+- 反例（错误的 chapters 写法 — 不要这样做）：
+  ```json
+  { "range": [20, 230], "title": "好的，那我们来聊一下你的工作。", "desc": "" }   ❌ title 是第一句话原文
+  { "range": [20, 230], "title": "工作", "desc": "" }                                ❌ desc 留空
+  ```
+
+> ⚠️ 如果 `chapters` 缺失，`generate_review.js` fallback 会用"取每段第一句作 title、desc 留空"自动均分，对用户筛选**完全无用**。脚本会打 WARNING。看到 WARNING 必须回来补 `chapters`，不要让它跑过去。
 
 ### 3. 生成句子级审查页 `review_roughcut.html`
 

@@ -287,6 +287,30 @@ ls "$BASE_DIR/profile.json" "$BASE_DIR/_debrief.json"
 
 粗剪 skill 的 LLM 分析步骤会读这两个文件（profile.tone/aggressiveness/glossary + debrief.must_keep/privacy/incidents），影响段落判定阈值与硬保护/硬删除。详见 `粗剪/SKILL.md § "Profile / debrief 注入"`。
 
+**调完粗剪、生成 review HTML 之前，先 check `semantic_deep_analysis.json` 有没有 `chapters` 字段**（用户在审查页靠章节导航跳话题，缺失会导致章节无 summary、对筛选无用）：
+
+```bash
+# semantic_deep_analysis.json 必须有 chapters 数组，每项含 range/title/desc 三字段
+if ! node -e "
+  const a = require('$BASE_DIR/2_分析/semantic_deep_analysis.json');
+  if (!Array.isArray(a.chapters) || a.chapters.length === 0) {
+    console.error('❌ chapters 数组缺失或为空');
+    process.exit(1);
+  }
+  const bad = a.chapters.filter(c => !c.range || !c.title || !c.desc);
+  if (bad.length > 0) {
+    console.error('❌ 有', bad.length, '个章节缺 range/title/desc:', bad);
+    process.exit(1);
+  }
+  console.log('✅ chapters OK:', a.chapters.length, '个章节');
+"; then
+  echo "回到粗剪 SKILL.md 步骤 8 补 chapters 再继续"
+  exit 1
+fi
+```
+
+如果上面 fail，回粗剪 skill 补完再走 `generate_review.js`——**不要让粗剪审查页在 chapters 缺失下交给用户**（2026-06-08 pike 实例 EP19 因为漏写 chapters 被 @xiangge-li 当场反馈）。
+
 完成后给**总结 + 3 种回复方式**（语气温暖，不要 enumerated 命令感）：
 
 ```
