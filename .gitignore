@@ -10,3 +10,7 @@ node_modules/
 !剪播客/用户偏好/default/
 剪播客/todo.md
 剪播客/快速开始_v4.md
+# cloud-bridge runtime state (per-host)
+cloud-bridge/sessions/
+cloud-bridge/pending/
+cloud-bridge/current_tunnel_url.txt
