@@ -211,6 +211,29 @@ section.block > .desc {
 }
 .qsel-x:hover { border-color: var(--black); color: var(--black); }
 
+.merge-suggest {
+  background: #FFF7E0;
+  border: 1px solid #E6D5A8;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px; color: var(--black);
+  display: flex; align-items: center; gap: 12px;
+}
+.merge-suggest-text { flex: 1; line-height: 1.4; }
+.merge-suggest-btn {
+  font-family: inherit; font-size: 12px; padding: 4px 12px;
+  border: 1px solid var(--black); background: var(--black);
+  color: #fff; border-radius: 4px; cursor: pointer; white-space: nowrap;
+}
+.merge-suggest-btn:hover { background: #333; }
+.merge-suggest-dismiss {
+  font-family: inherit; font-size: 12px; padding: 4px 10px;
+  border: 1px solid var(--mid); background: transparent;
+  color: var(--mid); border-radius: 4px; cursor: pointer; white-space: nowrap;
+}
+.merge-suggest-dismiss:hover { color: var(--black); border-color: var(--black); }
+
 .quote-divider {
   font-family: "SF Mono", monospace;
   font-size: 11px; letter-spacing: 2.5px; text-transform: uppercase;
@@ -237,14 +260,16 @@ section.block > .desc {
 .qrow:last-child { border-bottom: 0; }
 .qrow:hover { background: var(--faint); }
 .qrow.sel { background: var(--faint); }
+.qrow.sel .col-text { font-weight: 600; }
 .qrow .col-star { font-size: 14px; padding-top: 1px; color: var(--light); }
 .qrow.sel .col-star { color: var(--black); }
 .qrow.sel .col-star::before { content: '★'; }
 .qrow:not(.sel) .col-star::before { content: '☆'; }
 .qrow .col-time {
   font-family: "SF Mono", monospace; font-size: 11px; color: var(--muted);
-  padding-top: 2px;
+  padding-top: 2px; cursor: pointer;
 }
+.qrow .col-time:hover { color: var(--black); text-decoration: underline; text-underline-offset: 2px; }
 .qrow .col-spk {
   font-size: 11px; color: var(--muted); letter-spacing: 1px;
   padding-top: 2px; white-space: nowrap;
@@ -424,7 +449,7 @@ audio#au { display: none; }
 
     <section class="block" id="sec-quotes">
       <h2>金句选择 <span class="ord">01</span></h2>
-      <p class="desc">选 3–6 句最有记忆点的话用做片头预览。AI 预选了 3 句作起点，你可以替换；点任一句会跳到那段播放。</p>
+      <p class="desc">选 3–6 段最有记忆点的话用做片头预览。AI 预选了 3 段作起点；点击句子选中，点时间试听，先点一句再 Shift 点另一句可合并为一整段。</p>
 
       <div class="quote-selected">
         <div class="quote-selected-hdr">
@@ -434,7 +459,7 @@ audio#au { display: none; }
         <div id="qsel-list"></div>
       </div>
 
-      <div class="quote-divider">全部句子（点 ☆ 选中 / 取消）</div>
+      <div class="quote-divider">全部句子（点击选中 / Shift 点击合并连续句子）</div>
       <div class="quote-list" id="quote-list"></div>
     </section>
 
@@ -555,7 +580,7 @@ const CB = window.__CLOUD_BRIDGE__ || null;
 const SESSION = CB && CB.session ? CB.session : null;
 
 const state = {
-  quotes: new Set(),
+  quotes: [],
   // 8 params total:
   intro_dur: 15,  intro_fin: 2, intro_fout: 3,
   outro_dur: 15,  outro_fin: 5, outro_fout: 3,
@@ -565,6 +590,10 @@ const state = {
   outro_uploaded: false,
   outro_filename: null,
 };
+let quoteAnchor = -1;
+// 临时合并建议：用户普通点击新选一句时，如果相邻位置已有单句 group，
+// 提示用户合并成一段。不持久化（refresh / 切换不留痕）。
+let suggestMerge = null;  // { aIdx, bIdx } | null
 
 // File references kept for client-side preview only — they live for the
 // life of the page (lost on reload). Cloud-bridge state still has the
@@ -587,6 +616,82 @@ function fmtBytes(n) {
 const au = document.getElementById('au');
 
 function getSent(idx) { return SENTENCES.find(s => s.idx === idx); }
+function sentenceOrder(idx) { return SENTENCES.findIndex(s => s.idx === idx); }
+function sentenceRange(a, b) {
+  const ai = sentenceOrder(a), bi = sentenceOrder(b);
+  if (ai < 0 || bi < 0) return [b];
+  const lo = Math.min(ai, bi), hi = Math.max(ai, bi);
+  return SENTENCES.slice(lo, hi + 1).map(s => s.idx);
+}
+function normalizeQuoteGroup(q) {
+  let ids = [];
+  if (Array.isArray(q)) ids = q;
+  else if (q && Array.isArray(q.ids)) ids = q.ids;
+  else if (q && Number.isFinite(Number(q.idx))) ids = [Number(q.idx)];
+  else if ((typeof q === 'number' || typeof q === 'string') && Number.isFinite(Number(q))) ids = [Number(q)];
+  const uniq = [...new Set(ids.map(Number))]
+    .filter(i => getSent(i))
+    .sort((a, b) => sentenceOrder(a) - sentenceOrder(b));
+  return uniq.length ? { ids: uniq } : null;
+}
+function normalizeQuoteGroups(items) {
+  const out = [], seen = new Set();
+  if (!Array.isArray(items)) return out;
+  for (const item of items) {
+    const g = normalizeQuoteGroup(item);
+    if (!g) continue;
+    const sig = quoteSig(g);
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    out.push(g);
+    if (out.length >= 6) break;
+  }
+  return sortQuoteGroups(out);
+}
+function sortQuoteGroups(groups) {
+  return groups.slice().sort((a, b) => sentenceOrder(a.ids[0]) - sentenceOrder(b.ids[0]));
+}
+function quoteSig(g) { return (g.ids || []).join(','); }
+function quoteCount() { return state.quotes.length; }
+function quoteSelectedSet() {
+  const out = new Set();
+  for (const g of state.quotes) for (const id of g.ids) out.add(id);
+  return out;
+}
+function quoteGroupIndexByIdx(idx) {
+  return state.quotes.findIndex(g => g.ids.includes(idx));
+}
+function removeQuoteGroup(group) {
+  const sig = quoteSig(group);
+  state.quotes = state.quotes.filter(g => quoteSig(g) !== sig);
+}
+function addQuoteGroup(ids) {
+  const group = normalizeQuoteGroup(ids);
+  if (!group) return false;
+  const incoming = new Set(group.ids);
+  state.quotes = state.quotes.filter(g => !g.ids.some(id => incoming.has(id)));
+  if (state.quotes.length >= 6) {
+    setStatus('最多 6 段金句', 'warn');
+    return false;
+  }
+  state.quotes.push(group);
+  state.quotes = sortQuoteGroups(state.quotes);
+  return true;
+}
+function quotePayload(group) {
+  const items = group.ids.map(getSent).filter(Boolean).sort((a, b) => sentenceOrder(a.idx) - sentenceOrder(b.idx));
+  if (!items.length) return null;
+  const first = items[0], last = items[items.length - 1];
+  const speakers = [...new Set(items.map(s => s.speaker).filter(Boolean))];
+  return {
+    idx: first.idx,
+    ids: items.map(s => s.idx),
+    start: first.start,
+    end: last.end,
+    speaker: speakers.join(' / '),
+    text: items.map(s => s.text).join(''),
+  };
+}
 function jumpAndPlay(t) {
   if (!au) return;
   au.currentTime = t;
@@ -598,26 +703,53 @@ function renderSelected() {
   const list = document.getElementById('qsel-list');
   const count = document.getElementById('qsel-count');
   list.innerHTML = '';
-  count.textContent = state.quotes.size + ' / 6';
-  if (state.quotes.size === 0) {
+  count.textContent = quoteCount() + ' / 6';
+  if (quoteCount() === 0) {
     const e = document.createElement('div');
     e.className = 'qsel-empty';
     e.textContent = '还没选 — 在下面点 ☆ 或者保留 AI 建议的起点。';
     list.appendChild(e);
     return;
   }
-  const sorted = [...state.quotes].sort((a,b)=>a-b);
-  for (const idx of sorted) {
-    const s = getSent(idx); if (!s) continue;
+  // 渲染合并建议（如果还有效：两个相关 group 都仍是单句 group 在 state 里）
+  if (suggestMerge) {
+    const aGroup = state.quotes.find(g => g.ids.length === 1 && g.ids[0] === suggestMerge.aIdx);
+    const bGroup = state.quotes.find(g => g.ids.length === 1 && g.ids[0] === suggestMerge.bIdx);
+    const aSent = getSent(suggestMerge.aIdx);
+    const bSent = getSent(suggestMerge.bIdx);
+    if (aGroup && bGroup && aSent && bSent) {
+      const bar = document.createElement('div');
+      bar.className = 'merge-suggest';
+      const txt = document.createElement('div');
+      txt.className = 'merge-suggest-text';
+      txt.textContent = `📌 紧邻两句（${fmtTime(aSent.start)} & ${fmtTime(bSent.start)}）要合成一段吗？`;
+      const yes = document.createElement('button');
+      yes.className = 'merge-suggest-btn';
+      yes.textContent = '合并为一段';
+      yes.onclick = (e) => { e.stopPropagation(); acceptMergeSuggestion(); };
+      const no = document.createElement('button');
+      no.className = 'merge-suggest-dismiss';
+      no.textContent = '保持独立';
+      no.onclick = (e) => { e.stopPropagation(); dismissMergeSuggestion(); };
+      bar.appendChild(txt); bar.appendChild(yes); bar.appendChild(no);
+      list.appendChild(bar);
+    } else {
+      suggestMerge = null;  // stale，自愈
+    }
+  }
+  const sorted = sortQuoteGroups(state.quotes);
+  for (const group of sorted) {
+    const q = quotePayload(group); if (!q) continue;
     const row = document.createElement('div');
     row.className = 'qsel-row';
     const star = document.createElement('div'); star.className = 'qsel-star'; star.textContent = '★';
-    const time = document.createElement('div'); time.className = 'qsel-time'; time.textContent = fmtTime(s.start);
+    const time = document.createElement('div'); time.className = 'qsel-time'; time.textContent = group.ids.length > 1 ? `${fmtTime(q.start)}-${fmtTime(q.end)}` : fmtTime(q.start);
     const text = document.createElement('div'); text.className = 'qsel-text';
-    text.innerHTML = `<span class="spk">${s.speaker || ''}</span>${escapeHtml(s.text)}`;
-    text.onclick = () => jumpAndPlay(s.start);
+    const spanTag = group.ids.length > 1 ? ` · ${group.ids.length} 句合并` : '';
+    text.innerHTML = `<span class="spk">${q.speaker || ''}${spanTag}</span>${escapeHtml(q.text)}`;
+    text.onclick = () => jumpAndPlay(q.start);
     const x = document.createElement('button'); x.className = 'qsel-x'; x.textContent = '取消';
-    x.onclick = (e) => { e.stopPropagation(); state.quotes.delete(idx); save(); renderAll(); };
+    x.onclick = (e) => { e.stopPropagation(); removeQuoteGroup(group); save(); renderAll(); };
     row.appendChild(star); row.appendChild(time); row.appendChild(text); row.appendChild(x);
     list.appendChild(row);
   }
@@ -626,29 +758,86 @@ function renderSelected() {
 function renderQuoteList() {
   const list = document.getElementById('quote-list');
   list.innerHTML = '';
+  const selected = quoteSelectedSet();
   for (const s of SENTENCES) {
     const row = document.createElement('div');
     row.className = 'qrow';
-    if (state.quotes.has(s.idx)) row.classList.add('sel');
+    row.title = '点击选中；Shift 点击可和上一句合并为一段；点时间试听';
+    if (selected.has(s.idx)) row.classList.add('sel');
     if (SUGGESTED.includes(s.idx)) row.classList.add('sug');
     const star = document.createElement('div'); star.className = 'col-star';
     const time = document.createElement('div'); time.className = 'col-time'; time.textContent = fmtTime(s.start);
+    time.title = '试听这一句';
+    time.onclick = (e) => { e.stopPropagation(); jumpAndPlay(s.start); };
     const spk = document.createElement('div'); spk.className = 'col-spk'; spk.textContent = s.speaker || '';
     const text = document.createElement('div'); text.className = 'col-text';
-    text.innerHTML = escapeHtml(s.text) + (SUGGESTED.includes(s.idx) && !state.quotes.has(s.idx) ? '<span class="col-suggest">AI 建议</span>' : '');
+    text.innerHTML = escapeHtml(s.text) + (SUGGESTED.includes(s.idx) && !selected.has(s.idx) ? '<span class="col-suggest">AI 建议</span>' : '');
     row.appendChild(star); row.appendChild(time); row.appendChild(spk); row.appendChild(text);
-    row.addEventListener('click', () => {
-      jumpAndPlay(s.start);
-      if (state.quotes.has(s.idx)) state.quotes.delete(s.idx);
-      else {
-        if (state.quotes.size >= 6) { setStatus('最多 6 条金句', 'warn'); return; }
-        state.quotes.add(s.idx);
-      }
+    row.addEventListener('click', (e) => {
+      toggleQuote(s.idx, e);
       save();
       renderAll();
     });
     list.appendChild(row);
   }
+}
+
+function toggleQuote(idx, e) {
+  if (e && e.shiftKey && quoteAnchor >= 0) {
+    const ids = sentenceRange(quoteAnchor, idx);
+    if (addQuoteGroup(ids)) setStatus(`已合并 ${ids.length} 句为 1 段金句`, 'ok');
+    quoteAnchor = idx;
+    suggestMerge = null;
+    return;
+  }
+  const gi = quoteGroupIndexByIdx(idx);
+  if (gi >= 0) {
+    const removed = state.quotes[gi];
+    state.quotes.splice(gi, 1);
+    setStatus((removed.ids.length > 1 ? '已取消这一段金句' : '已取消这句金句'), null);
+    suggestMerge = null;
+  } else {
+    if (addQuoteGroup([idx])) {
+      const adj = findAdjacentSingleGroup(idx);
+      suggestMerge = adj
+        ? { aIdx: Math.min(idx, adj.ids[0]), bIdx: Math.max(idx, adj.ids[0]) }
+        : null;
+    } else {
+      suggestMerge = null;
+    }
+  }
+  quoteAnchor = idx;
+}
+
+// 查相邻的单句 group：sentenceOrder 差 1，且对方也是单句 group（非合并段）。
+// 仅在普通点击新增单句时调用 —— shift 范围、删除都不触发。
+function findAdjacentSingleGroup(newIdx) {
+  const newOrd = sentenceOrder(newIdx);
+  if (newOrd < 0) return null;
+  for (const g of state.quotes) {
+    if (g.ids.length !== 1) continue;
+    if (g.ids[0] === newIdx) continue;
+    const otherOrd = sentenceOrder(g.ids[0]);
+    if (otherOrd < 0) continue;
+    if (Math.abs(otherOrd - newOrd) === 1) return g;
+  }
+  return null;
+}
+
+function acceptMergeSuggestion() {
+  if (!suggestMerge) return;
+  const ids = sentenceRange(suggestMerge.aIdx, suggestMerge.bIdx);
+  if (addQuoteGroup(ids)) {
+    setStatus(`已合并 ${ids.length} 句为 1 段金句`, 'ok');
+  }
+  suggestMerge = null;
+  save();
+  renderAll();
+}
+
+function dismissMergeSuggestion() {
+  suggestMerge = null;
+  renderAll();
 }
 
 // ============== Section 3: Param sliders ==============
@@ -690,9 +879,9 @@ function refreshHighlightsParamsVisibility() {
   const hlParams = document.getElementById('hl-params');
   const hlCount = document.getElementById('hl-count');
   if (!hlParams) return;
-  if (state.quotes.size > 0) {
+  if (quoteCount() > 0) {
     hlParams.style.display = '';
-    if (hlCount) hlCount.textContent = state.quotes.size;
+    if (hlCount) hlCount.textContent = quoteCount();
   } else {
     hlParams.style.display = 'none';
   }
@@ -895,13 +1084,13 @@ function wireUploads() {
 // ============== Sidebar nav + summary ==============
 function renderSidebar() {
   document.getElementById('sb-total').textContent = SENTENCES.length + ' 句';
-  document.getElementById('sb-quotes').textContent = state.quotes.size + ' / 6 选中';
+  document.getElementById('sb-quotes').textContent = quoteCount() + ' / 6 选中';
   const i = state.intro_uploaded ? '✓ 片头' : (state.intro_filename ? '○ 片头(本地)' : '○ 片头待上传');
   const o = state.outro_uploaded ? '✓ 片尾' : (state.outro_filename ? '○ 片尾(本地)' : '○ 片尾待上传');
   document.getElementById('sb-uploads').textContent = `${i} · ${o}`;
   document.getElementById('sb-params').textContent =
     `片头 ${state.intro_dur}s · 片尾 ${state.outro_dur}s` +
-    (state.quotes.size > 0 ? ` · 金句 ${state.hl_bg_db}dB` : '');
+    (quoteCount() > 0 ? ` · 金句 ${state.hl_bg_db}dB` : '');
 }
 function wireNav() {
   const items = document.querySelectorAll('.nav-item');
@@ -922,7 +1111,7 @@ const SLIDER_KEYS = ['intro_dur','intro_fin','intro_fout','outro_dur','outro_fin
 
 function save() {
   try {
-    const snap = { quotes: [...state.quotes] };
+    const snap = { quotes: state.quotes.map(g => g.ids.slice()) };
     for (const k of SLIDER_KEYS) snap[k] = state[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) snap[k] = state[k];
     localStorage.setItem(SK, JSON.stringify(snap));
@@ -943,7 +1132,7 @@ function restoreLocal() {
   try {
     const raw = localStorage.getItem(SK); if (!raw) return;
     const s = JSON.parse(raw);
-    if (Array.isArray(s.quotes)) { state.quotes.clear(); s.quotes.forEach(i => state.quotes.add(i)); }
+    if (Array.isArray(s.quotes)) state.quotes = normalizeQuoteGroups(s.quotes);
     for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
       if (s[k] != null) state[k] = s[k];
@@ -957,10 +1146,7 @@ function setStatus(msg, kind) {
 }
 function buildPayload() {
   const payload = {
-    quotes: [...state.quotes].sort((a,b)=>a-b).map(idx => {
-      const s = getSent(idx);
-      return s ? { idx, start: s.start, end: s.end, speaker: s.speaker, text: s.text } : null;
-    }).filter(Boolean),
+    quotes: sortQuoteGroups(state.quotes).map(quotePayload).filter(Boolean),
     intro_uploaded: state.intro_uploaded, intro_filename: state.intro_filename,
     outro_uploaded: state.outro_uploaded, outro_filename: state.outro_filename,
     timestamp: Date.now(),
@@ -997,7 +1183,7 @@ async function postState(commit) {
 }
 document.getElementById('btn-save').onclick = () => postState(false);
 document.getElementById('btn-commit').onclick = async () => {
-  if (state.quotes.size < 1) { alert('至少选 1 条金句'); return; }
+  if (quoteCount() < 1) { alert('至少选 1 段金句'); return; }
   if (!state.intro_uploaded && !state.intro_filename) {
     if (!confirm('片头音乐还没上传，确定提交？')) return;
   }
@@ -1009,7 +1195,7 @@ async function loadFromServer() {
     const r = await fetch(`/api/${SESSION}/state`); if (!r.ok) return;
     const s = await r.json();
     if (s.initial) { setStatus('新 session · 开始编辑'); return; }
-    if (Array.isArray(s.quotes)) { state.quotes.clear(); for (const q of s.quotes) state.quotes.add(q.idx); }
+    if (Array.isArray(s.quotes)) state.quotes = normalizeQuoteGroups(s.quotes);
     for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
       if (s[k] != null) state[k] = s[k];
@@ -1049,7 +1235,10 @@ function renderAll() {
   renderSidebar();
   refreshHighlightsParamsVisibility();
 }
-function initSuggested() { for (const i of SUGGESTED) state.quotes.add(i); }
+function initSuggested() {
+  state.quotes = [];
+  for (const i of SUGGESTED) addQuoteGroup([i]);
+}
 
 (async function init(){
   if (SESSION) au.src = `/api/${SESSION}/audio`;
