@@ -437,6 +437,11 @@ body.preview .sug-reason { opacity: 0; }
   font-size: 12px; color: var(--sage-light); padding: 0 8px;
   white-space: nowrap;
 }
+.bulk-hint {
+  font-family: "SF Mono", monospace;
+  font-size: 11px; color: rgba(239,236,230,.55);
+  padding: 0 6px 0 0; white-space: nowrap; letter-spacing: .3px;
+}
 .bulk-btn {
   border: 1px solid rgba(239,236,230,.35);
   background: transparent; color: var(--sage-light);
@@ -688,8 +693,9 @@ body.preview .sug-reason { opacity: 0; }
   <div class="mt-label" id="mt-text">编辑模式</div>
 </div>
 <div class="toast" id="toast"></div>
-<div class="bulkbar" id="bulkbar" title="Shift 点击可扩展成连续选区；⌘/Ctrl 点击可增减单句">
+<div class="bulkbar" id="bulkbar">
   <span class="bulk-count" id="bulk-count">已选 0 句</span>
+  <span class="bulk-hint">Shift+点 = 选一段连续　·　⌘/Ctrl+点 = 增减单句</span>
   <button class="bulk-btn" onclick="bulkSetSelected(true)">删除</button>
   <button class="bulk-btn" onclick="bulkSetSelected(false)">恢复</button>
   <button class="bulk-btn ghost" onclick="clearSentenceSelection()">清空</button>
@@ -949,8 +955,17 @@ function selectSentence(idx,e){
   if(e){
     e.stopPropagation();
     if(e.target.closest && e.target.closest('.fe,.pd,.in-sil,.chk,.r-tm'))return;
-    const textSel=window.getSelection();
-    if(textSel&&!textSel.isCollapsed&&textSel.toString().trim())return;
+    if(e.shiftKey){
+      // Shift+click 是 sentence 范围选 —— 浏览器会本能地把 text selection
+      // 从上次 caret 拖到本次 click，导致下面的 isCollapsed 检查误判为
+      // "用户正在做文本选区"，从而 bypass 整个 selectSentence 逻辑。
+      // 显式清掉浏览器制造的文本 range，让范围选生效。
+      const sel=window.getSelection();
+      if(sel) sel.removeAllRanges();
+    } else {
+      const textSel=window.getSelection();
+      if(textSel&&!textSel.isCollapsed&&textSel.toString().trim())return;
+    }
   }
   if(e&&e.shiftKey&&selectedAnchor>=0){
     sentenceRange(selectedAnchor,idx).forEach(i=>selectedRows.add(i));
@@ -967,6 +982,10 @@ function selectSentence(idx,e){
   if(x)updateNav(x.s);
   renderTx();
   updateBulkBar();
+  // 点行：seek 到这一句但不自动播放（操作员反馈 2026-06-09）。
+  // 复用 goTo(idx, false)：sk(seek) + 更新 .row.act 高亮 + scrollIntoView。
+  // 不影响 r-tm 时间戳 click（那里是 goTo(idx, true) 显式播放）。
+  if(x) goTo(idx, false);
 }
 
 function bulkSetSelected(shouldDelete){
