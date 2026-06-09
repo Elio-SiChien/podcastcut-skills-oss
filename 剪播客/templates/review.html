@@ -372,6 +372,12 @@ body.preview .sug-reason { opacity: 0; }
 }
 .row:hover { background: var(--sage-light); }
 .row.act { background: var(--sage-light); border-left-color: var(--black); }
+.row.sel {
+  background: #E7E1D7;
+  border-left-color: var(--mid);
+  box-shadow: inset 0 0 0 1px rgba(26,26,26,.08);
+}
+.row.sel.act { border-left-color: var(--black); }
 .row.del { opacity: .55; }
 .row.del:hover { opacity: .7; }
 .row.del .r-txt { text-decoration: line-through; text-decoration-color: var(--mid); color: var(--muted); }
@@ -412,6 +418,33 @@ body.preview .sug-reason { opacity: 0; }
 /* 选区浮动删除按钮 */
 #selbtn { position: fixed; z-index: 9999; display:none; background: var(--black); color:#fff; font-size: 13px; font-weight:600; padding: 6px 12px; border-radius: 6px; cursor:pointer; box-shadow: 0 3px 12px rgba(0,0,0,.25); user-select:none; }
 #selbtn:hover { background: var(--gold-dark); }
+
+/* 批量句子操作 */
+.bulkbar {
+  position: fixed; left: 50%; bottom: 84px; z-index: 1200;
+  transform: translate(-50%, 12px);
+  display: flex; align-items: center; gap: 10px;
+  background: #1A1A1A; color: var(--sage-light);
+  border: 1px solid rgba(239,236,230,.18);
+  border-radius: 8px; padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.24);
+  opacity: 0; pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.bulkbar.vis { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+.bulk-count {
+  font-family: "SF Mono", monospace;
+  font-size: 12px; color: var(--sage-light); padding: 0 8px;
+  white-space: nowrap;
+}
+.bulk-btn {
+  border: 1px solid rgba(239,236,230,.35);
+  background: transparent; color: var(--sage-light);
+  border-radius: 5px; padding: 6px 12px;
+  font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.bulk-btn:hover { background: var(--sage-light); color: var(--black); }
+.bulk-btn.ghost { color: var(--light); border-color: rgba(239,236,230,.18); }
 
 /* ===== PLAYER ===== */
 .player {
@@ -607,7 +640,7 @@ body.preview .sug-reason { opacity: 0; }
   <div class="main-hdr">
     <h1 class="main-title">__STAGE_TITLE__</h1>
     <p class="main-sub">
-      审阅并编辑你的播客内容。点击句子跳转播放，使用 <span class="hint-tag">☐</span> 删除或恢复段落，所有操作自动保存。
+      审阅并编辑你的播客内容。点击句子选中，点击时间试听，使用 <span class="hint-tag">☐</span> 删除或恢复段落，所有操作自动保存。
     </p>
     <div class="mode-bar">
       <div class="mode-toggle" id="mode-toggle">
@@ -655,6 +688,12 @@ body.preview .sug-reason { opacity: 0; }
   <div class="mt-label" id="mt-text">编辑模式</div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="bulkbar" id="bulkbar" title="Shift 点击可扩展成连续选区；⌘/Ctrl 点击可增减单句">
+  <span class="bulk-count" id="bulk-count">已选 0 句</span>
+  <button class="bulk-btn" onclick="bulkSetSelected(true)">删除</button>
+  <button class="bulk-btn" onclick="bulkSetSelected(false)">恢复</button>
+  <button class="bulk-btn ghost" onclick="clearSentenceSelection()">清空</button>
+</div>
 <audio id="au" src="__AUDIO_SRC__" preload="auto"></audio>
 
 <script>
@@ -690,6 +729,9 @@ const RD = new Set(RD_LIST);
 const fdis = new Set();
 // 精剪页：折叠的精剪删除段中，被用户展开的 group key 集合（group key = 首句 idx）
 const rdExp = new Set();
+// 句子多选：点击选中，Shift+点击连续选择，Cmd/Ctrl+点击增减单句
+const selectedRows = new Set();
+let selectedAnchor = -1;
 let curIdx=-1, curNav=-1;
 S.forEach(x=>{ if(x.ai) del.add(x.idx); if(x.sug) del.add(x.idx); });
 // 精剪页：精剪用户确认的整句删除也加入 del（默认折叠显示）
@@ -813,13 +855,14 @@ function renderTx() {
     const id=del.has(x.idx);
     const isSug = x.sug && id;
     let cl='row'+extraCls;if(id)cl+=' del';if(isSug)cl+=' sug';if(x.idx===curIdx)cl+=' act';
+    if(selectedRows.has(x.idx))cl+=' sel';
     const reasonTag = (isSug && x.sugReason) ? `<span class="sug-reason">${esc(x.sugReason)}</span>` : '';
     const incs = IS_BY_SENT[x.idx] || [];
     const incTags = incs.map(s => {
       const dis = fdis.has(s.key) ? ' dis' : '';
       return `<span class="in-sil${dis}" data-key="${s.key}" title="句尾停顿 ${s.duration}s（点击 ${fdis.has(s.key)?'启用':'禁用'} 此静音）">⏸ ${s.duration}s</span>`;
     }).join('');
-    return `<div class="${cl}" id="r${x.idx}" onclick="goTo(${x.idx})"><div class="r-chk"><div class="chk ${id?'on':''}" onclick="event.stopPropagation();tgS(${x.idx})">✕</div></div><div class="r-num mono">${x.idx+1}</div><div class="r-sp">${x.sp}</div><div class="r-tm">${x.ts}</div><div class="r-txt">${incTags}${txtHtml(x)}${reasonTag}</div></div>`;
+    return `<div class="${cl}" id="r${x.idx}" onclick="selectSentence(${x.idx}, event)"><div class="r-chk"><div class="chk ${id?'on':''}" onclick="event.stopPropagation();tgS(${x.idx})">✕</div></div><div class="r-num mono">${x.idx+1}</div><div class="r-sp">${x.sp}</div><div class="r-tm" onclick="event.stopPropagation();goTo(${x.idx}, true)" title="播放这一句">${x.ts}</div><div class="r-txt">${incTags}${txtHtml(x)}${reasonTag}</div></div>`;
   }
 
   let lb=null;
@@ -872,11 +915,73 @@ function toggleRdFold(key){
 }
 
 function isBD(b){for(let i=b.r[0];i<=b.r[1];i++)if(!del.has(i))return false;return true}
-function renderAll(){renderSidebar();renderTx()}
+function renderAll(){renderSidebar();renderTx();updateBulkBar()}
 
 // ===== INTERACTIONS =====
 function tgS(i){del.has(i)?del.delete(i):del.add(i);um.add(i);renderAll();sv()}
 function tgB(id){const b=BLK.find(x=>x.id===id);if(!b)return;const ad=isBD(b);for(let i=b.r[0];i<=b.r[1];i++){ad?del.delete(i):del.add(i);um.add(i)}renderAll();sv()}
+
+function sentenceRange(a,b){
+  const ai=S.findIndex(x=>x.idx===a);
+  const bi=S.findIndex(x=>x.idx===b);
+  if(ai<0||bi<0)return [b];
+  const lo=Math.min(ai,bi), hi=Math.max(ai,bi);
+  return S.slice(lo,hi+1).map(x=>x.idx);
+}
+
+function updateBulkBar(){
+  const bar=document.getElementById('bulkbar');
+  const count=document.getElementById('bulk-count');
+  if(!bar||!count)return;
+  const n=selectedRows.size;
+  count.textContent=`已选 ${n} 句`;
+  bar.classList.toggle('vis', n>0);
+}
+
+function clearSentenceSelection(){
+  selectedRows.clear();
+  selectedAnchor=-1;
+  renderTx();
+  updateBulkBar();
+}
+
+function selectSentence(idx,e){
+  if(e){
+    e.stopPropagation();
+    if(e.target.closest && e.target.closest('.fe,.pd,.in-sil,.chk,.r-tm'))return;
+    const textSel=window.getSelection();
+    if(textSel&&!textSel.isCollapsed&&textSel.toString().trim())return;
+  }
+  if(e&&e.shiftKey&&selectedAnchor>=0){
+    sentenceRange(selectedAnchor,idx).forEach(i=>selectedRows.add(i));
+  }else if(e&&(e.metaKey||e.ctrlKey)){
+    selectedRows.has(idx)?selectedRows.delete(idx):selectedRows.add(idx);
+    selectedAnchor=idx;
+  }else{
+    selectedRows.clear();
+    selectedRows.add(idx);
+    selectedAnchor=idx;
+  }
+  curIdx=idx;
+  const x=S.find(s=>s.idx===idx);
+  if(x)updateNav(x.s);
+  renderTx();
+  updateBulkBar();
+}
+
+function bulkSetSelected(shouldDelete){
+  const ids=[...selectedRows];
+  if(!ids.length)return;
+  ids.forEach(i=>{
+    shouldDelete?del.add(i):del.delete(i);
+    um.add(i);
+  });
+  selectedRows.clear();
+  selectedAnchor=-1;
+  renderAll();
+  sv();
+  showT(`${ids.length} 句已${shouldDelete?'删除':'恢复'}`);
+}
 
 // ===== 半句删除（选区 → 词 → 时间段）=====
 const selbtn=document.createElement('div');
@@ -1180,14 +1285,10 @@ function scheduleNextSkip(){
   _skipScheduled=null;
 }
 
-function goTo(idx){
+function goTo(idx, shouldPlay=true){
   curIdx=idx;
   const x=S.find(s=>s.idx===idx);
-  // 只 seek，不自动播放。
-  // - 用户已经在播放 → sk 改 currentTime，浏览器自动从新位置继续播
-  // - 用户暂停状态 → 跳到新位置后保持暂停，要听就点 ▶ 按钮
-  // 2026-06-08 反馈（@Cheny EP21 圆桌）：选中句子时自动播放打断了 review 节奏
-  if(x){sk(x.s);}
+  if(x){sk(x.s);if(shouldPlay)au.play()}
   document.querySelectorAll('.row.act').forEach(el=>el.classList.remove('act'));
   const r=document.getElementById('r'+idx);
   if(r){r.classList.add('act');r.scrollIntoView({behavior:'smooth',block:'center'})}
@@ -1463,7 +1564,7 @@ function doExport(){
 // Version key = title + sentence count + delete count, so stale cache is ignored
 const DATA_VER = document.title + '_' + S.length + '_' + S.filter(x=>x.ai||x.sug).length;
 const SK='rc6_'+DATA_VER;
-function sv(){invalidateSkipRanges();try{localStorage.setItem(SK,JSON.stringify({v:DATA_VER,t:Date.now(),d:Array.from(del),m:Array.from(um),p:pdel,fd:Array.from(fdis),re:Array.from(rdExp)}))}catch(e){}}
+function sv(){invalidateSkipRanges();try{localStorage.setItem(SK,JSON.stringify({v:DATA_VER,d:Array.from(del),m:Array.from(um),p:pdel,fd:Array.from(fdis),re:Array.from(rdExp)}))}catch(e){}}
 function rs(){try{const r=localStorage.getItem(SK);if(!r)return;const s=JSON.parse(r);if(s.v!==DATA_VER)return;if(s.d){del.clear();s.d.forEach(i=>del.add(i))}if(s.m)s.m.forEach(i=>um.add(i));if(s.p){for(const k in pdel)delete pdel[k];Object.assign(pdel,s.p)}if(s.fd)s.fd.forEach(k=>fdis.add(k));if(s.re)s.re.forEach(k=>rdExp.add(k));invalidateSkipRanges();}catch(e){}}
 function showT(m){const el=document.getElementById('toast');el.textContent=m;el.classList.add('vis');setTimeout(()=>el.classList.remove('vis'),2000)}
 
@@ -1505,15 +1606,6 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
 
   function setStatus(msg, color){ statusEl.textContent = msg; if (color) statusEl.style.color = color; }
 
-  // 锁页只读：session 已 committed 后，禁用保存/提交并给出人话提示（不暴露 HTTP 状态码）。
-  function lockCommitted(){
-    btnSave.disabled = true;
-    btnCommit.disabled = true;
-    btnSave.style.opacity = '.4';
-    btnCommit.style.opacity = '.4';
-    setStatus('已提交，无法修改', '#1f6feb');
-  }
-
   // 2. POST 状态到 server
   async function postState(commit){
     const body = {
@@ -1531,11 +1623,7 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!r.ok) {
-        // 409 = 这条 session 已经提交锁定了。给人话，别把 "HTTP 409" 甩给用户。
-        if (r.status === 409) { lockCommitted(); return; }
-        throw new Error('HTTP ' + r.status);
-      }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json();
       if (commit) {
         setStatus('✓ 已提交，agent 继续剪辑', '#1f6feb');
@@ -1573,34 +1661,20 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
     }).catch(() => {});
   }, 30000);
 
-  // 4. 页面 load 时与 server state 协调：
-  //    - committed：服务器版本权威，载入并锁页只读；
-  //    - 否则取较新的一份（比时间戳），避免刷新把刚改还没自动保存的本地编辑冲掉。
-  function applyServerState(s){
-    if (s.sentence_deletes) { del.clear(); s.sentence_deletes.forEach(i => del.add(i)); }
-    if (s.partial_deletes) { for (const k in pdel) delete pdel[k]; Object.assign(pdel, s.partial_deletes); }
-    if (s.fdis) { fdis.clear(); s.fdis.forEach(k => fdis.add(k)); }
-    if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
-    invalidateSkipRanges();
-    renderAll();
-  }
+  // 4. 页面 load 时从 server 拉最新 state，覆盖 localStorage（多设备同步）
   (async () => {
-    let localTs = 0;
-    try { const raw = localStorage.getItem(SK); if (raw) { const p = JSON.parse(raw); localTs = (p && p.t) || 0; } } catch (e) {}
     try {
       const r = await fetch(`/api/${SESSION}/state`);
       if (!r.ok) return;
       const s = await r.json();
       if (s.initial) { setStatus('新 session，开始编辑'); return; }
-      if (s.committed) { applyServerState(s); lockCommitted(); return; }
-      // 草稿：只有服务器比本地新才覆盖；否则保留本地（rs() 已恢复的较新编辑，刷新不丢）
-      const serverTs = s.timestamp || s.received_at || 0;
-      if (serverTs > localTs) {
-        applyServerState(s);
-        setStatus('载入服务器版本（' + new Date(serverTs).toLocaleString() + '）');
-      } else {
-        setStatus('已恢复本地编辑');
-      }
+      if (s.sentence_deletes) { del.clear(); s.sentence_deletes.forEach(i => del.add(i)); }
+      if (s.partial_deletes) { for (const k in pdel) delete pdel[k]; Object.assign(pdel, s.partial_deletes); }
+      if (s.fdis) { fdis.clear(); s.fdis.forEach(k => fdis.add(k)); }
+      if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
+      invalidateSkipRanges();
+      renderAll();
+      setStatus('载入服务器版本（' + new Date(s.timestamp || s.received_at).toLocaleString() + '）');
     } catch (e) { /* fallback to localStorage */ }
   })();
 
