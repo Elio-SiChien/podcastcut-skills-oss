@@ -19,11 +19,11 @@
  * actually reads) is *not* in the commit blob. We rebuild it here from
  * fine_analysis.json + the per-edit fdis toggles.
  *
- * Ord assignment matches generate_review.js (剪播客/scripts/generate_review.js
+ * Ord assignment matches generate_review.js (shared/scripts/generate_review.js
  * around line 270): for each fine edit in file order, increment a per-
  * sentenceIdx counter starting at 1. The fdis key format is `${idx}@${ord}`.
  *
- * Merge tolerance 0.05s matches doExport() in 剪播客/templates/review.html
+ * Merge tolerance 0.05s matches doExport() in shared/templates/review.html
  * (around line 1431) — kept tight on purpose so a self_correction keepText
  * sandwiched between two stutter deletes doesn't get swallowed.
  */

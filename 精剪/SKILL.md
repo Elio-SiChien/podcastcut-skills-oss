@@ -16,7 +16,7 @@ pos: pipeline 第三步；上游=/podcastcut-粗剪，下游=/podcastcut-执行
 
 架构守护者：run_fine_analysis.js / merge_llm_fine.js / refine_fine_analysis.js / refine_boundaries.py /
 generate_review.js（**与粗剪共用同一生成器和同一模板 templates/review.html**，精剪态靠
-传 --fine 和 --roughcut 激活；产物文件名仍为 review_enhanced.html 以区分粗剪页）暂在 剪播客/scripts(templates)。
+传 --fine 和 --roughcut 激活；产物文件名仍为 review_enhanced.html 以区分粗剪页）暂在 shared/scripts/ + shared/templates/。
 旧的 generate_review_enhanced.js / templates/review_enhanced.html 已删除（被统一生成器/模板取代）；历史可在 CHANGELOG / git log 中查。
 未来建 _shared/ 时统一迁移并更新引用。
 -->
@@ -36,7 +36,7 @@ generate_review.js（**与粗剪共用同一生成器和同一模板 templates/r
 - 审查页用占位符注入，生成后校验**无样例残留**（不应出现 `雨林/潘潘/阿司`）。
 
 ## 脚本位置
-`$SKILL_DIR/剪播客/scripts/`（run_fine_analysis.js / merge_llm_fine.js / refine_fine_analysis.js / refine_boundaries.py / generate_review.js）、模板 `$SKILL_DIR/剪播客/templates/review.html`（**统一模板,与粗剪共用**）。
+`$SKILL_DIR/shared/scripts/`（run_fine_analysis.js / merge_llm_fine.js / refine_fine_analysis.js / refine_boundaries.py / generate_review.js）、模板 `$SKILL_DIR/shared/templates/review.html`（**统一模板,与粗剪共用**）。
 
 ---
 
@@ -47,7 +47,7 @@ generate_review.js（**与粗剪共用同一生成器和同一模板 templates/r
 ```bash
 PROJECT="${PROJECT:-$(cat "$SKILL_DIR/output/.current_project")}"
 BASE_DIR="$SKILL_DIR/output/$PROJECT/剪播客"
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" fine in_progress
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" fine in_progress
 ```
 > 上游契约：`2_分析/sentences.txt`、`semantic_deep_analysis.json`、`1_转录/subtitles_words.json`、`audio_seekable.mp3` 应已存在。缺 `semantic_deep_analysis.json` 则先跑 `/podcastcut-粗剪`。
 > **关键**：精剪以用户在粗剪页确认导出的 `2_分析/delete_segments_roughcut.json` 为「保留/删除」底稿（见下「数据流」）。若该文件缺失（用户未导出粗剪），下游脚本自动回退到 AI 的 `semantic_deep_analysis.json` 判断——但应提醒用户：那样精剪反映的是 AI 原始粗剪，不是你的手改。
@@ -55,7 +55,7 @@ node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" fine in_pr
 ### 1. 规则层 → `fine_analysis_rules.json`
 
 ```bash
-node "$SKILL_DIR/剪播客/scripts/run_fine_analysis.js" --analysis-dir "$BASE_DIR/2_分析"
+node "$SKILL_DIR/shared/scripts/run_fine_analysis.js" --analysis-dir "$BASE_DIR/2_分析"
 ```
 高 recall 规则检测：句首填充词（100% recall）、长静音、连续相同词卡顿、后缀匹配卡顿、句中孤立填充词、短语级句内重复、连续填充词、重启信号。部分标记 `needsReview=true` → 交 LLM 层审核。
 > 删除句来源：脚本自动优先读 `delete_segments_roughcut.json` 的 `sentence_deletes`（用户决定），否则回退 `semantic_deep_analysis.json`。**只分析用户保留的句子**——你删得越多越省 LLM token，你恢复的句子也能被分析到。运行时 stderr 会打印来源（`roughcut(user)` / `semantic(AI)`）。
@@ -82,10 +82,10 @@ LLM 层输出格式（写入 `2_分析/fine_analysis_llm.json`）：
 
 ```bash
 # 合并去重：LLM 文本标记 → 映射回词级时间戳，与规则层合并；rejected 项移除
-node "$SKILL_DIR/剪播客/scripts/merge_llm_fine.js" --analysis-dir "$BASE_DIR/2_分析"
+node "$SKILL_DIR/shared/scripts/merge_llm_fine.js" --analysis-dir "$BASE_DIR/2_分析"
 
 # 波形 onset 精修紧密边界（在切点附近搜能量谷底；原版备份 fine_analysis_pre_refine.json）
-node "$SKILL_DIR/剪播客/scripts/refine_fine_analysis.js" \
+node "$SKILL_DIR/shared/scripts/refine_fine_analysis.js" \
   --analysis-dir "$BASE_DIR/2_分析" \
   --audio "$BASE_DIR/1_转录/audio_seekable.mp3"
 ```
@@ -107,7 +107,7 @@ node "$SKILL_DIR/剪播客/scripts/refine_fine_analysis.js" \
 
 ```bash
 cd "$BASE_DIR/2_分析"
-node "$SKILL_DIR/剪播客/scripts/generate_review.js" \
+node "$SKILL_DIR/shared/scripts/generate_review.js" \
   --sentences sentences.txt \
   --words "$BASE_DIR/1_转录/subtitles_words.json" \
   --analysis semantic_deep_analysis.json \
@@ -163,13 +163,13 @@ precision/recall/F1）+ 追加到 `eval/results.jsonl`（longitudinal 数据，
 
 ```bash
 FE=$(node -e "try{const a=require('$BASE_DIR/2_分析/fine_analysis.json');console.log((a.summary&&a.summary.totalEdits)||(a.edits&&a.edits.length)||0)}catch(e){console.log(0)}")
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" fine awaiting_review \
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" fine awaiting_review \
   --outputs '{"analysis":"2_分析/fine_analysis.json","review_page":"review_enhanced.html","export":"2_分析/delete_segments_edited.json"}' \
   --summary "{\"fineEdits\":$FE}"
 ```
 用户确认导出无误后置 `approved`：
 ```bash
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" fine approved --note "用户已审核导出"
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" fine approved --note "用户已审核导出"
 ```
 
 ---

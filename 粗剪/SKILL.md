@@ -14,7 +14,7 @@ output: 2_分析/semantic_deep_analysis.json、review_roughcut.html、(用户)de
         project.json(roughcut=awaiting_review)
 pos: pipeline 第二步；上游=转录，下游=/podcastcut-精剪
 
-架构守护者：generate_review.js / 模板 review.html 暂在 剪播客/scripts(templates)。
+架构守护者：generate_review.js / 模板 review.html 暂在 shared/scripts/ + shared/templates/。
 **模板与精剪共用**：精剪单元也调本生成器（额外传 --fine 和 --roughcut 激活精剪态，渲染 AI 标 + 折叠粗剪整删段），
 输出叫 review_enhanced.html 以区分两阶段。改本模板前先想想对精剪页有没有影响。
 未来建 _shared/ 时统一迁移并更新引用。
@@ -35,7 +35,7 @@ pos: pipeline 第二步；上游=转录，下游=/podcastcut-精剪
 - 审查页模板用占位符注入（`__SENTENCES_DATA__` 等），生成后必须校验**无样例残留**（不应出现 `雨林/潘潘/阿司` 等示例说话人）。
 
 ## 脚本位置
-`$SKILL_DIR/剪播客/scripts/generate_review.js`、模板 `$SKILL_DIR/剪播客/templates/review.html`。
+`$SKILL_DIR/shared/scripts/generate_review.js`、模板 `$SKILL_DIR/shared/templates/review.html`。
 
 ---
 
@@ -47,7 +47,7 @@ pos: pipeline 第二步；上游=转录，下游=/podcastcut-精剪
 PROJECT="${PROJECT:-$(cat "$SKILL_DIR/output/.current_project")}"
 BASE_DIR="$SKILL_DIR/output/$PROJECT/剪播客"
 USER_ID="${PODCASTCUT_USER:-$(node -e "console.log(require('$BASE_DIR/project.json').project.user||'default')")}"
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" roughcut in_progress
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" roughcut in_progress
 ```
 > 上游契约：`2_分析/sentences.txt`、`1_转录/subtitles_words.json`、`1_转录/audio_seekable.mp3` 应已存在（转录单元产出）。缺失则先跑 `/podcastcut-转录`。
 
@@ -215,7 +215,7 @@ per-podcast 真有 idiosyncratic 串场语再写进 `profile.cue_patterns`（sch
 
 ```bash
 cd "$BASE_DIR/2_分析"
-node "$SKILL_DIR/剪播客/scripts/generate_review.js" \
+node "$SKILL_DIR/shared/scripts/generate_review.js" \
   --sentences sentences.txt \
   --words "$BASE_DIR/1_转录/subtitles_words.json" \
   --analysis semantic_deep_analysis.json \
@@ -278,13 +278,13 @@ precision/recall/F1）+ 追加到 `eval/results_roughcut.jsonl`（longitudinal
 ```bash
 # 生成审查页后即置 awaiting_review（pipeline 在此暂停等人工审核）
 DELS=$(node -e "try{const a=require('$BASE_DIR/2_分析/semantic_deep_analysis.json');console.log((a.summary&&a.summary.deleteBlocks)||0)}catch(e){console.log(0)}")
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" roughcut awaiting_review \
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" roughcut awaiting_review \
   --outputs '{"analysis":"2_分析/semantic_deep_analysis.json","review_page":"review_roughcut.html","export":"2_分析/delete_segments_roughcut.json"}' \
   --summary "{\"deleteBlocks\":$DELS}"
 ```
 用户确认导出无误后（口头确认或下游单元启动时）置 `approved`：
 ```bash
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" roughcut approved --note "用户已审核导出"
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" roughcut approved --note "用户已审核导出"
 ```
 
 ---

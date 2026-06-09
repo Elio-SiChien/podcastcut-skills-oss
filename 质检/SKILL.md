@@ -221,10 +221,10 @@ python3 <skill_dir>/scripts/report_generator.py \
 
 ```bash
 # 1. 对剪辑后音频重新转录
-bash <skill_dir>/剪播客/scripts/aliyun_funasr_transcribe.sh <cut_audio_url> <speaker_count>
+bash <skill_dir>/shared/scripts/aliyun_funasr_transcribe.sh <cut_audio_url> <speaker_count>
 
 # 2. 生成字级转录
-node <skill_dir>/剪播客/scripts/generate_subtitles_from_aliyun.js \
+node <skill_dir>/shared/scripts/generate_subtitles_from_aliyun.js \
   <new_transcription.json> <speaker_mapping.json>
 
 # 3. 语义审核
@@ -429,7 +429,7 @@ pip install google-genai          # 可选，启用 AI 听感评估
 ## 与其他 Skill 的关系
 
 ```
-/podcastcut-剪播客      → 阶段 1（转录+AI分析） → 阶段 2（人工审核） → 阶段 3（剪辑+质检）
+/podcastcut-edit-chat   → 阶段 1（转录+AI分析） → 阶段 2（人工审核） → 阶段 3（剪辑+质检）
 /podcastcut-质检        → 阶段 3.3（本 Skill: Phase A + B + C）
 /podcastcut-音质处理    → 阶段 4（按说话人处理音质）
 /podcastcut-后期        → 阶段 5（高光+音乐+后期）

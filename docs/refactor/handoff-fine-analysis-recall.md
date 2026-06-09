@@ -66,9 +66,9 @@ done
 
 ```bash
 # 找 chunking 逻辑
-grep -n "chunk\|window\|batch" 剪播客/scripts/run_fine_analysis.js | head -20
+grep -n "chunk\|window\|batch" shared/scripts/run_fine_analysis.js | head -20
 # 找 prompt
-grep -n "prompt\|system\|你是\|你需要" 剪播客/scripts/run_fine_analysis.js | head -10
+grep -n "prompt\|system\|你是\|你需要" shared/scripts/run_fine_analysis.js | head -10
 ```
 
 可能的漏标原因(按概率排序):
@@ -110,10 +110,10 @@ done
 
 | 文件 | 关注什么 |
 |------|---------|
-| `剪播客/scripts/run_fine_analysis.js` | LLM 调用 + prompt;chunking 逻辑;并发/重试 |
-| `剪播客/scripts/merge_llm_fine.js` | LLM + 规则两路合并;过滤阈值;边界外扩 |
-| `剪播客/scripts/refine_fine_analysis.js` | onset 精修;低 confidence 跳过;_refinePoints 标记 |
-| `剪播客/参考/技术陷阱与波形.md` | 陷阱 25/26/35/36/38/39 涵盖 recall vs precision 的历次教训 |
+| `shared/scripts/run_fine_analysis.js` | LLM 调用 + prompt;chunking 逻辑;并发/重试 |
+| `shared/scripts/merge_llm_fine.js` | LLM + 规则两路合并;过滤阈值;边界外扩 |
+| `shared/scripts/refine_fine_analysis.js` | onset 精修;低 confidence 跳过;_refinePoints 标记 |
+| `docs/reference/技术陷阱与波形.md` | 陷阱 25/26/35/36/38/39 涵盖 recall vs precision 的历次教训 |
 | `output/.../2_分析/fine_analysis_{rules,llm,pre_refine,final}.json` | 4 个阶段产物,对比定位 |
 | `output/.../剪播客/2_分析/sentences.txt` | 这 4 句的原文(看为什么 LLM 漏召回) |
 

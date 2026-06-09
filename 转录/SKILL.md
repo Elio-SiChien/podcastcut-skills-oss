@@ -11,8 +11,8 @@ input: 音频文件 (*.mp3/*.wav/*.m4a/*.flac) + 说话人数量 + 姓名
 output: 1_转录/subtitles_words.json、speaker_mapping.json、2_分析/sentences.txt、project.json(transcribe=done)
 pos: pipeline 第一步；下游 = /podcastcut-粗剪（经 output/.current_project 交接）
 
-架构守护者：脚本暂引用 剪播客/scripts/（与 质检 共用 aliyun_funasr_transcribe.sh、generate_subtitles_from_aliyun.js）。
-未来建 _shared/ 时统一迁移并更新 剪播客/质检/转录 三处引用。
+架构守护者：脚本暂引用 shared/scripts/（与 质检 共用 aliyun_funasr_transcribe.sh、generate_subtitles_from_aliyun.js）。
+shared/ 已实现（2026-06-09 重构）。
 -->
 
 # 转录单元
@@ -27,7 +27,7 @@ pos: pipeline 第一步；下游 = /podcastcut-粗剪（经 output/.current_proj
 > ⚠️ 用户未给说话人数量时**必须先问**。
 
 ## 脚本位置
-转录脚本暂位于 `$SKILL_DIR/剪播客/scripts/`（与 质检 共用，尚未迁入 `_shared/`）。
+转录脚本暂位于 `$SKILL_DIR/shared/scripts/`（与 质检 共用，尚未迁入 `_shared/`）。
 
 ---
 
@@ -47,12 +47,12 @@ mkdir -p "$BASE_DIR/1_转录" "$BASE_DIR/2_分析" "$BASE_DIR/3_成品"
 
 # 初始化/复用 project.json（幂等：已存在则不覆盖）
 if [ ! -f "$BASE_DIR/project.json" ]; then
-  node "$SKILL_DIR/剪播客/scripts/manifest.js" init "$BASE_DIR" --audio "$AUDIO_PATH" --user "$USER_ID" --title "$AUDIO_NAME"
+  node "$SKILL_DIR/shared/scripts/manifest.js" init "$BASE_DIR" --audio "$AUDIO_PATH" --user "$USER_ID" --title "$AUDIO_NAME"
 fi
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" transcribe in_progress
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" transcribe in_progress
 ```
 
-### 2. 准备音频（三个版本，音质红线见剪播客）
+### 2. 准备音频（三个版本，音质红线见 docs/reference/技术陷阱与波形.md）
 
 ```bash
 AUDIO_EXT="${AUDIO_PATH##*.}"
@@ -75,7 +75,7 @@ echo "URL: $AUDIO_URL"   # 确认 HTTP 200 可公网访问；uguu.se 24h 有效
 ```bash
 SPEAKER_COUNT=2   # ← 用户提供
 cd "$BASE_DIR/1_转录"
-bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT"
+bash "$SKILL_DIR/shared/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT"
 # 产出 aliyun_funasr_transcription.json（脚本已修复 0 字节下载 bug）
 ```
 
@@ -87,13 +87,13 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 # 在 step 4 之前：如果有 profile.glossary，注册热词
 if [ -f "$BASE_DIR/profile.json" ] && [ "$(node -e "const p=require('$BASE_DIR/profile.json');process.stdout.write(String((p.glossary||[]).length))")" -gt 0 ]; then
   cd "$BASE_DIR/1_转录"
-  bash "$SKILL_DIR/剪播客/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
+  bash "$SKILL_DIR/shared/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
 fi
 
 # step 4：转录时把 vocabulary_id 传进去
 VOCAB_ID=""
 [ -f "$BASE_DIR/1_转录/vocabulary_id.txt" ] && VOCAB_ID="$(cat "$BASE_DIR/1_转录/vocabulary_id.txt")"
-bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
+bash "$SKILL_DIR/shared/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
 ```
 
 热词约束：单词非 ASCII 时 ≤15 字符，weight 默认 4，每账户最多 10 个 vocabulary，每个最多 500 词。脚本会过滤超长/重复/空串。详见 https://help.aliyun.com/zh/model-studio/custom-hot-words/ 。
@@ -104,7 +104,7 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 
 ```bash
 # 看前 20 句判断谁是谁（找自我介绍等线索）
-node "$SKILL_DIR/剪播客/scripts/identify_speakers.js" "$BASE_DIR/1_转录/aliyun_funasr_transcription.json"
+node "$SKILL_DIR/shared/scripts/identify_speakers.js" "$BASE_DIR/1_转录/aliyun_funasr_transcription.json"
 ```
 根据输出 + 用户给的姓名，写 `speaker_mapping.json`（speaker_id → 姓名）：
 ```bash
@@ -119,11 +119,11 @@ EOF
 
 ```bash
 cd "$BASE_DIR/1_转录"
-node "$SKILL_DIR/剪播客/scripts/generate_subtitles_from_aliyun.js" aliyun_funasr_transcription.json speaker_mapping.json
+node "$SKILL_DIR/shared/scripts/generate_subtitles_from_aliyun.js" aliyun_funasr_transcription.json speaker_mapping.json
 # → subtitles_words.json（核心）
 
 cd "$BASE_DIR/2_分析"
-node "$SKILL_DIR/剪播客/scripts/generate_sentences.js" "$BASE_DIR/1_转录/subtitles_words.json"
+node "$SKILL_DIR/shared/scripts/generate_sentences.js" "$BASE_DIR/1_转录/subtitles_words.json"
 # → sentences.txt（格式：句索引|词索引范围|说话人|文本）
 ```
 
@@ -133,7 +133,7 @@ node "$SKILL_DIR/剪播客/scripts/generate_sentences.js" "$BASE_DIR/1_转录/su
 
 ```bash
 cd "$BASE_DIR/2_分析"
-node "$SKILL_DIR/剪播客/scripts/enhance_punctuation.js"
+node "$SKILL_DIR/shared/scripts/enhance_punctuation.js"
 # 默认扫 >50 chars 且 ≤1 punct 的句子，喂 LLM 补全。
 # 会改写 subtitles_words.json + 重跑 generate_sentences.js（覆盖 sentences.txt）。
 # 因为可能新增句界（"。"），下游粗剪/精剪还没跑时调用是安全的；
@@ -147,8 +147,8 @@ node "$SKILL_DIR/剪播客/scripts/enhance_punctuation.js"
 ```bash
 # 说话人 + 句数/词数写入 manifest
 SENT=$(wc -l < "$BASE_DIR/2_分析/sentences.txt" | tr -d ' ')
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-speakers "$BASE_DIR" --count "$SPEAKER_COUNT" --mapping "$(cat "$BASE_DIR/1_转录/speaker_mapping.json")" --verified
-node "$SKILL_DIR/剪播客/scripts/manifest.js" set-stage "$BASE_DIR" transcribe done \
+node "$SKILL_DIR/shared/scripts/manifest.js" set-speakers "$BASE_DIR" --count "$SPEAKER_COUNT" --mapping "$(cat "$BASE_DIR/1_转录/speaker_mapping.json")" --verified
+node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" transcribe done \
   --summary "{\"sentences\":$SENT,\"asr\":\"aliyun_funasr\"}" \
   --outputs '{"subtitles":"1_转录/subtitles_words.json","sentences":"2_分析/sentences.txt"}'
 echo "✅ 转录完成。当前项目: $(cat "$SKILL_DIR/output/.current_project")"

@@ -9,12 +9,12 @@ description: |
 <!--
 input: 剪辑后成品 MP3 + speaker_mapping.json + subtitles_words.json
 output: 音质处理版 MP3（同码率）
-pos: 在 /podcastcut-剪播客 阶段 3 之后、/podcastcut-后期 之前
+pos: 在 /podcastcut-edit-chat 阶段 3 之后、/podcastcut-后期 之前
 
 架构守护者：一旦我被修改，请同步更新：
 1. ../README.md 的 Skill 清单
 2. ../安装/SKILL.md 的 symlink 注册
-3. ../剪播客/SKILL.md 的阶段 4 说明
+3. ../edit-chat/SKILL.md 的阶段 4 说明
 -->
 
 # 播客音质处理

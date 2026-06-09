@@ -185,12 +185,12 @@ chat: 收到，开始转录...
 # profile 已在前置阶段 cp 到 $BASE_DIR/profile.json
 if [ "$(node -e "const p=require('$BASE_DIR/profile.json');process.stdout.write(String((p.glossary||[]).length))")" -gt 0 ]; then
   cd "$BASE_DIR/1_转录"
-  bash "$SKILL_DIR/剪播客/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
+  bash "$SKILL_DIR/shared/scripts/register_hot_words.sh" "@$BASE_DIR/profile.json" "$BASE_DIR/1_转录/vocabulary_id.txt"
 fi
 # 调转录脚本时把第 3 个参数 vocabulary_id 传进去（不存在则空字符串，脚本忽略）
 VOCAB_ID=""
 [ -f "$BASE_DIR/1_转录/vocabulary_id.txt" ] && VOCAB_ID="$(cat "$BASE_DIR/1_转录/vocabulary_id.txt")"
-bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
+bash "$SKILL_DIR/shared/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEAKER_COUNT" "$VOCAB_ID"
 ```
 
 注意：每个 DashScope 账户最多 10 个 vocabulary。重复跑同 profile 会重复创建——后续 task 可考虑缓存 vocabulary_id（按 glossary hash key）跳过已注册。MVP 暂时每次重创建。
@@ -216,10 +216,10 @@ bash "$SKILL_DIR/剪播客/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$S
 4. **跑 `generate_sentences.js`** → sentences.txt 里也是真名
 5. **切 10s audio sample** per speaker → upload via Slock attachment
 
-   用 `剪播客/scripts/extract_speaker_samples.py` —— 它从每个 speaker 最长的连续独白段里抽样（不是第一段），避开 intro 音乐和说话人交替段。两个失败模式（音乐 sample、混音 sample）在 EP20 实测撞过，详见脚本顶 docstring：
+   用 `shared/scripts/extract_speaker_samples.py` —— 它从每个 speaker 最长的连续独白段里抽样（不是第一段），避开 intro 音乐和说话人交替段。两个失败模式（音乐 sample、混音 sample）在 EP20 实测撞过，详见脚本顶 docstring：
 
    ```bash
-   python3 "$SKILL_DIR/剪播客/scripts/extract_speaker_samples.py" \
+   python3 "$SKILL_DIR/shared/scripts/extract_speaker_samples.py" \
      "$BASE_DIR/1_转录/aliyun_funasr_transcription.json" \
      "$BASE_DIR/1_转录/audio_original.mp3" \
      "$BASE_DIR/1_转录" \
@@ -501,7 +501,7 @@ AI 帮你做的：
 
 ```bash
 # 调 cut_audio.py 默认 .m4a 输出
-python3 "$SKILL_DIR/剪播客/scripts/cut_audio.py" "<name>_精剪版.m4a" ...
+python3 "$SKILL_DIR/shared/scripts/cut_audio.py" "<name>_精剪版.m4a" ...
 # trim_silences 自动保留 .m4a 后缀
 
 # 上传到 Slock
@@ -595,10 +595,10 @@ AI 帮你做的：
 
 | 阶段 | 调用 |
 |---|---|
-| 转录 | `node $SKILL_DIR/../剪播客/scripts/aliyun_funasr_transcribe.sh` 或 `transcribe.sh` |
+| 转录 | `node $SKILL_DIR/../shared/scripts/aliyun_funasr_transcribe.sh` 或 `transcribe.sh` |
 | 粗剪 | `podcastcut-粗剪` 走脚本 chain（generate_review.js + run_fine_analysis 之前的 5a 段） |
 | 精剪 | `podcastcut-精剪` 同样脚本 chain |
-| 执行（出片）| `python3 $SKILL_DIR/../剪播客/scripts/cut_audio.py` + `trim_silences.py` |
+| 执行（出片）| `python3 $SKILL_DIR/../shared/scripts/cut_audio.py` + `trim_silences.py` |
 
 不重新发明轮子，**这个 skill 只管 chat 流程编排 + 跨 skill 状态 + 用户对话**。
 

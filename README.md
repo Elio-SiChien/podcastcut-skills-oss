@@ -29,7 +29,8 @@ cd podcastcut-skills
 PODCASTCUT_DIR="$(pwd)"
 mkdir -p ~/.claude/skills
 ln -s "$PODCASTCUT_DIR/安装"      ~/.claude/skills/podcastcut-安装
-ln -s "$PODCASTCUT_DIR/剪播客"    ~/.claude/skills/podcastcut-剪播客
+ln -s "$PODCASTCUT_DIR/edit-chat"      ~/.claude/skills/podcastcut-edit-chat
+ln -s "$PODCASTCUT_DIR/onboarding-chat" ~/.claude/skills/podcastcut-onboarding-chat
 ln -s "$PODCASTCUT_DIR/转录"      ~/.claude/skills/podcastcut-转录
 ln -s "$PODCASTCUT_DIR/粗剪"      ~/.claude/skills/podcastcut-粗剪
 ln -s "$PODCASTCUT_DIR/精剪"      ~/.claude/skills/podcastcut-精剪
@@ -46,7 +47,8 @@ cp .env.example .env
 # 编辑 .env，填入阿里云 DashScope API Key
 ```
 
-在 Claude Code 中输入 `/podcastcut-剪播客 你的音频文件.mp3` 开始。
+在 Slock / Claude Code chat 里直接发音频附件 + "剪一下"，触发 `podcastcut-edit-chat` 走完整流程；
+或在 CLI 里按需调用各 stage skill（`/podcastcut-转录` / `/podcastcut-粗剪` / 等）。
 
 ## 流程
 
@@ -63,7 +65,8 @@ cp .env.example .env
 | 命令 | 功能 |
 |------|------|
 | `/podcastcut-安装` | 环境准备 |
-| `/podcastcut-剪播客` | 编排器（串起各单元，按状态推进、每步暂停审核、可续跑） |
+| `/podcastcut-edit-chat` | chat-mode 编排器（音频附件触发，串起各 stage，每步暂停） |
+| `/podcastcut-onboarding-chat` | 新播客首次接入（建 profile） |
 | `/podcastcut-转录` | 转录单元：音频 → FunASR → 字级转录 + 分句 |
 | `/podcastcut-粗剪` | 粗剪单元：段落级分析 + 句子级审查页 → `delete_segments_roughcut.json` |
 | `/podcastcut-精剪` | 精剪单元：词级口癖删减 + AI 自审查 + 词级审查页 → `delete_segments_edited.json` |

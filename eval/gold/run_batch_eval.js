@@ -3,8 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const resultsDir = '/sessions/intelligent-relaxed-sagan/mnt/剪播客/eval/results';
-const outputFile = '/sessions/intelligent-relaxed-sagan/mnt/剪播客/eval/predicted_llm.json';
+const resultsDir = '/sessions/intelligent-relaxed-sagan/mnt/eval/gold/results';
+const outputFile = '/sessions/intelligent-relaxed-sagan/mnt/eval/gold/predicted_llm.json';
 
 // Read all result files and merge
 const files = fs.readdirSync(resultsDir).filter(f => f.endsWith('.json')).sort();

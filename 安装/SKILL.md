@@ -35,7 +35,7 @@ PODCASTCUT_DIR="/path/to/podcastcut"
 
 # 创建 symlinks
 ln -s "$PODCASTCUT_DIR/安装"            ~/.claude/skills/podcastcut-安装
-ln -s "$PODCASTCUT_DIR/剪播客"          ~/.claude/skills/podcastcut-剪播客
+ln -s "$PODCASTCUT_DIR/edit-chat"        ~/.claude/skills/podcastcut-edit-chat
 ln -s "$PODCASTCUT_DIR/粗剪"            ~/.claude/skills/podcastcut-粗剪
 ln -s "$PODCASTCUT_DIR/精剪"            ~/.claude/skills/podcastcut-精剪
 ln -s "$PODCASTCUT_DIR/转录"            ~/.claude/skills/podcastcut-转录
@@ -48,7 +48,7 @@ ln -s "$PODCASTCUT_DIR/onboarding-chat" ~/.claude/skills/podcastcut-onboarding-c
 ln -s "$PODCASTCUT_DIR/dispatcher"      ~/.claude/skills/podcastcut-dispatcher
 ```
 
-验证：在 Claude Code 中按 `/`，应该能看到 `podcastcut-安装`、`podcastcut-剪播客` 等。
+验证：在 Claude Code 中按 `/`，应该能看到 `podcastcut-安装`、`podcastcut-edit-chat` 等。
 
 > **注意**：如果 `~/.claude/skills/` 目录不存在，先 `mkdir -p ~/.claude/skills/`。
 
@@ -116,7 +116,7 @@ ls -la ~/.claude/skills/ | grep podcastcut   # Skills 注册
 全部通过后即可使用：
 
 ```
-/podcastcut-剪播客 你的音频文件.mp3
+/podcastcut-edit-chat (或者发音频附件触发 chat-mode)
 ```
 
 ## 常见问题

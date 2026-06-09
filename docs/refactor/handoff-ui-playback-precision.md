@@ -93,7 +93,7 @@ setTimeout(resume, 80);                                   // 80ms fallback,防 s
 **6d seekTarget 精确落点** — `seekTarget = e`(删除范围精确结束点,**不加偏移**);仅当 `nextKept.startTime <= e + 0.5` 时才用 nextKept(避免精剪 seekTarget 跳过整句,陷阱 5)。
 
 #### 当前统一模板的播放跳过(简陋版)
-位置:`剪播客/templates/review.html`,第 ~1126-1135 行附近的 `timeupdate` 监听器:
+位置:`shared/templates/review.html`,第 ~1126-1135 行附近的 `timeupdate` 监听器:
 ```js
 if(pl)for(const x of S)if(del.has(x.idx)&&t>=x.s&&t<x.e){au.currentTime=x.e+.05;return}
 if(pl){
@@ -132,12 +132,12 @@ if(pl){
 
 | 文件 | 关注什么 |
 |------|----------|
-| `剪播客/templates/review.html` | timeupdate 监听器(~1126);doExport(~1131);新加 `getSkipRanges` |
-| `剪播客/scripts/generate_review.js` | FE 时间计算(`s/e` 来源);silence 类时间(time-only) |
-| `剪播客/scripts/merge_llm_fine.js` | boundary extension(陷阱 25/26/39 应该在这);post-merge gap cleanup |
-| `剪播客/scripts/refine_fine_analysis.js` | onset 精修;`_refinePoints` 标记;confidence < 0.5 fallback |
-| `剪播客/参考/技术陷阱与波形.md` | **必读**:陷阱 6/8/25/26/28/35-40 全在这 |
-| `剪播客/scripts/cut_audio.py` | 不需要改(成品已经干净),但要看 `-ss` 位置和 fade 处理(陷阱 10/11/27) |
+| `shared/templates/review.html` | timeupdate 监听器(~1126);doExport(~1131);新加 `getSkipRanges` |
+| `shared/scripts/generate_review.js` | FE 时间计算(`s/e` 来源);silence 类时间(time-only) |
+| `shared/scripts/merge_llm_fine.js` | boundary extension(陷阱 25/26/39 应该在这);post-merge gap cleanup |
+| `shared/scripts/refine_fine_analysis.js` | onset 精修;`_refinePoints` 标记;confidence < 0.5 fallback |
+| `docs/reference/技术陷阱与波形.md` | **必读**:陷阱 6/8/25/26/28/35-40 全在这 |
+| `shared/scripts/cut_audio.py` | 不需要改(成品已经干净),但要看 `-ss` 位置和 fade 处理(陷阱 10/11/27) |
 
 git log 里搜 `generate_review_enhanced.js` 能找到那 5000 行旧实现的最后一版,陷阱 6 的代码在那里头。
 

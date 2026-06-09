@@ -59,7 +59,7 @@ Scope: episode / podcast / global / agent-workflow
 - shared stage `SKILL.md`
 - shared scripts / templates
 - top-level `docs/`
-- `剪播客/基础剪辑规则/` 中的剪辑信号规则
+- `shared/editing-rules/` 中的剪辑信号规则
 
 判断标准：
 
@@ -98,7 +98,7 @@ Reason: 用户说"以后辟客都这样"，且这是辟客剪辑风格，不是�
 
 ```text
 Scope: global
-Landing: 剪播客/templates/review.html
+Landing: shared/templates/review.html
 Reason: "选中文字不应自动播放"是审查页通用交互问题，所有播客都受益。
 ```
 
