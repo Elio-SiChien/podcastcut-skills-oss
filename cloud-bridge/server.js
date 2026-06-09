@@ -118,12 +118,15 @@ function handleGetState(s, res) {
   if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
   const cFile = path.join(sessionDir(s), 'state.committed.json');
   const dFile = path.join(sessionDir(s), 'state.draft.json');
-  const file = fs.existsSync(cFile) ? cFile : (fs.existsSync(dFile) ? dFile : null);
+  const isCommitted = fs.existsSync(cFile);
+  const file = isCommitted ? cFile : (fs.existsSync(dFile) ? dFile : null);
   if (!file) return send(res, 200, { initial: true });
   fs.readFile(file, 'utf8', (err, data) => {
     if (err) return sendErr(res, 500, 'state read error');
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(data);
+    let payload;
+    try { payload = JSON.parse(data); } catch (e) { return sendErr(res, 500, 'state parse error'); }
+    payload.committed = isCommitted; // client locks the page read-only when true
+    send(res, 200, payload);
   });
 }
 

@@ -1463,7 +1463,7 @@ function doExport(){
 // Version key = title + sentence count + delete count, so stale cache is ignored
 const DATA_VER = document.title + '_' + S.length + '_' + S.filter(x=>x.ai||x.sug).length;
 const SK='rc6_'+DATA_VER;
-function sv(){invalidateSkipRanges();try{localStorage.setItem(SK,JSON.stringify({v:DATA_VER,d:Array.from(del),m:Array.from(um),p:pdel,fd:Array.from(fdis),re:Array.from(rdExp)}))}catch(e){}}
+function sv(){invalidateSkipRanges();try{localStorage.setItem(SK,JSON.stringify({v:DATA_VER,t:Date.now(),d:Array.from(del),m:Array.from(um),p:pdel,fd:Array.from(fdis),re:Array.from(rdExp)}))}catch(e){}}
 function rs(){try{const r=localStorage.getItem(SK);if(!r)return;const s=JSON.parse(r);if(s.v!==DATA_VER)return;if(s.d){del.clear();s.d.forEach(i=>del.add(i))}if(s.m)s.m.forEach(i=>um.add(i));if(s.p){for(const k in pdel)delete pdel[k];Object.assign(pdel,s.p)}if(s.fd)s.fd.forEach(k=>fdis.add(k));if(s.re)s.re.forEach(k=>rdExp.add(k));invalidateSkipRanges();}catch(e){}}
 function showT(m){const el=document.getElementById('toast');el.textContent=m;el.classList.add('vis');setTimeout(()=>el.classList.remove('vis'),2000)}
 
@@ -1505,6 +1505,15 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
 
   function setStatus(msg, color){ statusEl.textContent = msg; if (color) statusEl.style.color = color; }
 
+  // 锁页只读：session 已 committed 后，禁用保存/提交并给出人话提示（不暴露 HTTP 状态码）。
+  function lockCommitted(){
+    btnSave.disabled = true;
+    btnCommit.disabled = true;
+    btnSave.style.opacity = '.4';
+    btnCommit.style.opacity = '.4';
+    setStatus('已提交，无法修改', '#1f6feb');
+  }
+
   // 2. POST 状态到 server
   async function postState(commit){
     const body = {
@@ -1522,7 +1531,11 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        // 409 = 这条 session 已经提交锁定了。给人话，别把 "HTTP 409" 甩给用户。
+        if (r.status === 409) { lockCommitted(); return; }
+        throw new Error('HTTP ' + r.status);
+      }
       const j = await r.json();
       if (commit) {
         setStatus('✓ 已提交，agent 继续剪辑', '#1f6feb');
@@ -1560,20 +1573,34 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
     }).catch(() => {});
   }, 30000);
 
-  // 4. 页面 load 时从 server 拉最新 state，覆盖 localStorage（多设备同步）
+  // 4. 页面 load 时与 server state 协调：
+  //    - committed：服务器版本权威，载入并锁页只读；
+  //    - 否则取较新的一份（比时间戳），避免刷新把刚改还没自动保存的本地编辑冲掉。
+  function applyServerState(s){
+    if (s.sentence_deletes) { del.clear(); s.sentence_deletes.forEach(i => del.add(i)); }
+    if (s.partial_deletes) { for (const k in pdel) delete pdel[k]; Object.assign(pdel, s.partial_deletes); }
+    if (s.fdis) { fdis.clear(); s.fdis.forEach(k => fdis.add(k)); }
+    if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
+    invalidateSkipRanges();
+    renderAll();
+  }
   (async () => {
+    let localTs = 0;
+    try { const raw = localStorage.getItem(SK); if (raw) { const p = JSON.parse(raw); localTs = (p && p.t) || 0; } } catch (e) {}
     try {
       const r = await fetch(`/api/${SESSION}/state`);
       if (!r.ok) return;
       const s = await r.json();
       if (s.initial) { setStatus('新 session，开始编辑'); return; }
-      if (s.sentence_deletes) { del.clear(); s.sentence_deletes.forEach(i => del.add(i)); }
-      if (s.partial_deletes) { for (const k in pdel) delete pdel[k]; Object.assign(pdel, s.partial_deletes); }
-      if (s.fdis) { fdis.clear(); s.fdis.forEach(k => fdis.add(k)); }
-      if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
-      invalidateSkipRanges();
-      renderAll();
-      setStatus('载入服务器版本（' + new Date(s.timestamp || s.received_at).toLocaleString() + '）');
+      if (s.committed) { applyServerState(s); lockCommitted(); return; }
+      // 草稿：只有服务器比本地新才覆盖；否则保留本地（rs() 已恢复的较新编辑，刷新不丢）
+      const serverTs = s.timestamp || s.received_at || 0;
+      if (serverTs > localTs) {
+        applyServerState(s);
+        setStatus('载入服务器版本（' + new Date(serverTs).toLocaleString() + '）');
+      } else {
+        setStatus('已恢复本地编辑');
+      }
     } catch (e) { /* fallback to localStorage */ }
   })();
 
