@@ -346,6 +346,7 @@ template = template.replace(/__AUDIO_SRC__/g, audioSrc);
 template = template.replace(/__TITLE__/g, title);
 template = template.replace(/__PROJECT_NAME__/g, title);
 template = template.replace(/__STAGE_TITLE__/g, fineFile ? '精剪逐字稿' : '粗剪逐字稿');
+template = template.replace(/__BODY_MODE_CLASS__/g, fineFile ? 'fine' : '');
 
 fs.writeFileSync(outputFile, template);
 const sizeKB = Math.round(fs.statSync(outputFile).size / 1024);

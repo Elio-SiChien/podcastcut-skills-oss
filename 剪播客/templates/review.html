@@ -432,6 +432,9 @@ body.preview .sug-reason { opacity: 0; }
   transition: opacity .12s ease, transform .12s ease;
 }
 .bulkbar.vis { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+/* 精剪页是词级编辑，句级批量删除/恢复没有 UX 意义 → 隐藏 bulkbar，
+   selectSentence 同时禁用多选机制（见下方 JS） */
+body.fine .bulkbar { display: none !important; }
 .bulk-count {
   font-family: "SF Mono", monospace;
   font-size: 12px; color: var(--sage-light); padding: 0 8px;
@@ -569,7 +572,7 @@ body.preview .sug-reason { opacity: 0; }
 }
 </style>
 </head>
-<body>
+<body class="__BODY_MODE_CLASS__">
 
 <div class="topbar">
   <span class="brand">辟客</span>
@@ -951,11 +954,16 @@ function clearSentenceSelection(){
   updateBulkBar();
 }
 
+// 精剪模式（body.fine）：词级编辑，句级多选无 UX 意义 → 退化为单句 select。
+// bulkbar CSS 已隐藏，selectedRows 不再用作 bulk action 来源（但仍用作
+// .row.sel 高亮）。Shift/⌘ 修饰键忽略，每次 click 都重置为单 idx。
+const FINE_MODE = (typeof document!=='undefined') && document.body && document.body.classList.contains('fine');
+
 function selectSentence(idx,e){
   if(e){
     e.stopPropagation();
     if(e.target.closest && e.target.closest('.fe,.pd,.in-sil,.chk,.r-tm'))return;
-    if(e.shiftKey){
+    if(!FINE_MODE && e.shiftKey){
       // Shift+click 是 sentence 范围选 —— 浏览器会本能地把 text selection
       // 从上次 caret 拖到本次 click，导致下面的 isCollapsed 检查误判为
       // "用户正在做文本选区"，从而 bypass 整个 selectSentence 逻辑。
@@ -967,9 +975,9 @@ function selectSentence(idx,e){
       if(textSel&&!textSel.isCollapsed&&textSel.toString().trim())return;
     }
   }
-  if(e&&e.shiftKey&&selectedAnchor>=0){
+  if(!FINE_MODE && e && e.shiftKey && selectedAnchor>=0){
     sentenceRange(selectedAnchor,idx).forEach(i=>selectedRows.add(i));
-  }else if(e&&(e.metaKey||e.ctrlKey)){
+  }else if(!FINE_MODE && e && (e.metaKey||e.ctrlKey)){
     selectedRows.has(idx)?selectedRows.delete(idx):selectedRows.add(idx);
     selectedAnchor=idx;
   }else{
