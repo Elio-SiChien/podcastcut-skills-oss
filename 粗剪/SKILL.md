@@ -71,6 +71,8 @@ const profile = require(`${BASE_DIR}/profile.json`);
 
 **Profile / debrief 注入**（这一步是 LLM 调用，agent 自己读 SKILL.md 当 prompt 跑，所以"喂"profile = 在分析过程中显式参考下列字段）：
 
+> 用户 feedback 要先按 `docs/feedback-routing-SOP.md` 判断 scope。当前 episode 明确指令覆盖 podcast profile，podcast profile 覆盖 global baseline；只有单播客长期偏好才写 profile，跨播客通用能力才改 shared skill。
+
 | Profile / debrief 字段 | 喂进 LLM 的方式 |
 |---|---|
 | `profile.tone` | 段落级判定时**作为风格基线**："这档播客调性：『{tone}』。这意味着自然停顿、笑声、轻闲聊可能是节目特色，标 delete 前要确认它跟调性是否冲突。" |

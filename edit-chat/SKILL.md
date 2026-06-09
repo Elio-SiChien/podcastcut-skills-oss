@@ -57,6 +57,8 @@ user: 剪一下，3 人闲聊
 profile 字段（结构见 `onboarding-chat/SKILL.md`）：
 - name / tone / hosts / default_target_min / default_aggressiveness / glossary
 
+用户 feedback 需要先按 `docs/feedback-routing-SOP.md` 判断 scope：本期一次性 / 单播客长期 / 全局通用 / agent 工作流。明显 scope 可 fast path 直接执行并在汇报或 PR 里标 `Scope:`；不明确就先问。冲突时本期明确指令 > podcast profile > global baseline；agent 工作流偏好写入 agent memory / notes，不进剪辑规则。
+
 ---
 
 ## 前置：cloud-bridge 状态
@@ -567,6 +569,8 @@ AI 帮你做的：
 - debrief.privacy → 隐私段标 delete 或 censoring
 
 **这是把 profile 真正"用上"的关键**——onboarding 收集的偏好不能存了就不读。
+
+写入或更新 profile 前，先按 `docs/feedback-routing-SOP.md` 做 feedback routing：只有单播客长期偏好才写回 `profiles/<name>.json`；本期一次性指令留在 project debrief / analysis；跨播客通用能力走 shared skill / scripts / templates / docs PR。
 
 > 当前 6 个 skill 是不是已经支持读 profile，**TBD**。如果不支持，作为下游 task：让 `run_fine_analysis.js` / `粗剪` 的 LLM 调用支持 `--profile` 参数。
 

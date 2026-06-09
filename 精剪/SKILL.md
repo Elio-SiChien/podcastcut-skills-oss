@@ -64,6 +64,7 @@ node "$SKILL_DIR/剪播客/scripts/run_fine_analysis.js" --analysis-dir "$BASE_D
 
 分批读取 `sentences.txt`（**50–80 句/批**，防注意力稀释）+ `fine_analysis_rules.json`：
 - **⚠️ 必须先读 `基础剪辑规则/LLM精剪prompt模板.md`**，按检测清单逐句校对（像"校对员"而非"读者"）。
+- 如用户 feedback 影响本次精剪 / 播客长期偏好 / 全局规则，先按 `docs/feedback-routing-SOP.md` 判定 scope；当前 episode 明确指令 > podcast profile > global baseline。
 - **最高优先级：重说纠正**（`self_correction`，11 种子模式，占 LLM 独有价值 39%）。
 - 还检：残句 / 纯填充句 / 重复句（语义判断）、录制讨论、规则层 `needsReview` 的 confirm/reject、规则层补漏（仅 ASR 分词遗漏）。
 - 规则层已处理填充词/卡顿/短语重复，LLM **不重复检测**。
