@@ -77,10 +77,53 @@ const profile = require(`${BASE_DIR}/profile.json`);
 | `profile.default_aggressiveness`（保守/适中/激进） | 决定 `suggest_delete` 的阈值。保守：只标 100% 确定的；适中：含信息密度低；激进：含跑题闲聊和细枝末节展开。**目标删除比例**：保守 10-20% / 适中 20-35% / 激进 35-50%。⚠️ 2026-06-08 教训：**目标比例是 anchor 不是天花板**——agent 实际跑出 8% 然后"诚实交代密度高"是失职，应该按"激进就真的激进"硬扫到 30%+：除了 cue / production_talk 外，重复内容（嘉宾长独白内部同义重述）和与主题弱关联的细节也要标 delete。如果扫不到 30%，**说明扫描信号不够，回去再扫一遍**而不是把责任推给用户在审查页加 |
 | `profile.glossary` | **"拒删名词"列表**：含 glossary 词的句子默认不进 delete，且避免在 glossary 词所在句中切边界（防止切断专有名词上下文） |
 | `profile.default_target_min` | 目标时长 anchor（覆盖 fallback 90 min） |
+| `profile.cue_patterns`（可选） | **per-podcast 串场语扩展清单**（数组）。下方"中文圆桌通用 cue / turn-taking 信号"清单是 baseline 默认应用；如果某档播客有 idiosyncratic 串场语（例 "那么来到我们的 X 环节"），可以加在此字段里，**与 glossary 同样的注入模式**：含这些 pattern 的句子默认保留，并可当段落边界锚点。辟客 / 五点一刻当前都没设，跑空数组即可 |
 | `_debrief.json` 里 `must_keep`（用户钦定必留段） | **硬保护**：覆盖到的句子强制 `keep`，即使匹配 6 种删除类型 |
 | `_debrief.json` 里 `privacy`（用户标的隐私段） | 优先标 `delete` type=`privacy`，无视激进度阈值 |
 | `_debrief.json` 里 `incidents`（录制意外） | 提示 LLM 重点扫描 tech_debug 段，把意外段一并打到 tech_debug 块里 |
 | `_debrief.json` 里 `smoothness`（顺畅 / 还行 / 磕磕绊绊） | "磕磕绊绊"→ 提示更多 self_correction 段落；"顺畅"→ 减少误标 |
+
+#### 中文圆桌通用 cue / turn-taking 信号（默认保留，非辟客专属）
+
+⚠️ **整套删/留判断里最关键的一条认知** —— 串场 / cue / turn-taking 短语是
+**结构性过渡信号**，**不是口癖**。它们做的事是"让节奏顺起来"（让位 / 引出
+下一位 / 收口当前话题 / 切换话题）。LLM 默认保留，并可作为段落边界锚点。
+删了反而让节目跳切感强。
+
+下表为中文圆桌 / 访谈类播客通用 baseline（不限辟客），每档播客特殊的串场
+语可加在 `profile.cue_patterns`：
+
+| 类型 | 自然语 pattern 示例 |
+|---|---|
+| 自荐讲下一段 | "那我来说一下" / "那我先说" / "我先来" / "OK 我来" |
+| 点名 cue 嘉宾 | "X 你来说" / "X 你想讲讲吗" / "要不要 X 来说一下" / "我觉得让 X 来" |
+| 用 "cue" / "Q" 字面 | "那我来 cue 一下" / "我 Q 一下" / "帮帮他 Q 一下吧" / "继续吧" |
+| 段落收口 | "差不多就是这样" / "就这些" / "我先讲到这里" / "我的部分讲完了" / "OK，我说完了" |
+| 段落切换 | "那我们换一个话题" / "可以聊下一个吗" / "要不要直接到第 N 段" / "那么下面" |
+| 时长 / 节奏调度 | "时间差不多了" / "我们时间是 N 小时" / "这段还是有比较多理论" / "我们快一点" |
+| 元讨论 | "现在到哪了" / "我们可以收尾了" / "这段直接 PaaS 掉都 ok" / "看一下大纲" |
+| 接话 / turn-taking | "对，我接一下" / "我补充一下" / "我也想说一句" |
+
+##### ⚠️ 重要：context disambiguation — 同 pattern 看后续动作判定
+
+**同一个 pattern 在不同上下文是不同的处理方向**：
+
+- **cue 信号 → 保留**：例 "X 你来说" 后面**真的换嘉宾发言**了 = 给嘉宾让位
+  的过渡 → keep
+- **production_talk → 删除**：例 "这段直接 PaaS 掉都 ok" / "现在到哪了" /
+  "我们可以收尾了" 后面**继续在讨论录制本身**（节奏 / 分工 / 剪辑） →
+  delete（type=`production_talk`）
+
+判定方式：**LLM 看 pattern 之后的 2-3 句**：
+- 后面真换话题 / 换人 / 进入新内容 → cue（保留）
+- 后面继续聊"录制 / 剪辑 / 时长 / 节奏" → production_talk（删）
+- 这一条不写清楚，LLM 很容易把 "我们可以收尾了" 这种误当 cue 保留。
+
+##### 与 `production_talk` 判别原则的关系
+
+下方步骤 7a 的"激进档专扫"和后面的 `production_talk` 判别原则那一节都引用
+本表 —— **本表是"长什么样"的清单 + 默认 keep 原则，下方 production_talk
+那节是"判 delete 的边界条件"**。两个都给 LLM 才稳。
 
 **流程**：
 1. 通读 `2_分析/sentences.txt` 全文，划分话题段落
@@ -90,7 +133,7 @@ const profile = require(`${BASE_DIR}/profile.json`);
 5. 如仍需删减，按 `profile.default_aggressiveness` 阈值识别信息密度低的段落 → `delete`
 6. **质量优化扫描**（始终执行）：扫描啰嗦重复/过度展开/弱相关细节 → `suggest_delete`，但 glossary 词所在句不进
 7. **激进档专扫**（aggressiveness=激进 时必跑）：
-   a. **cue/production_talk 自然语扫描**：见下方"production_talk cue 流程识别"清单，所有匹配项都标 production_talk
+   a. **cue/production_talk 自然语扫描**：以上方"中文圆桌通用 cue / turn-taking 信号"表为 baseline pattern 集合，叠加 `profile.cue_patterns`（per-podcast 扩展）。**严格按 disambiguation 原则**：pattern 后面真换话题/换人 → 保留（cue）；后面继续聊录制本身 → 标 production_talk
    b. **重复内容扫描**：在 ≥2 分钟连续嘉宾独白里，找同一观点用 ≥2 段不同措辞反复说的段，标 `repeated_content`
    c. **弱关联细节扫描**：跟核心话题（用户 onboarding 给的话题大纲 / debrief.must_keep）关联度低的细枝末节，标 `chit_chat` 或 `suggest_delete`
    d. **节目结尾后段扫描**：从最后一句正式收尾（如"我们下期再见"/"stay tuned"）开始到文件末，全部标 `production_talk`
@@ -112,7 +155,11 @@ const profile = require(`${BASE_DIR}/profile.json`);
 
 ### `production_talk` 判别原则
 
-如果该句**对内容主题没有贡献，纯粹是在讨论节目本身的节奏/分工/时长**，就标 `production_talk`。**别因为它是嘉宾说的、礼貌的、衔接流畅的就以为是正文。** 不同播客的自然语 cue 模式差别很大——具体的 pattern 清单建议每档播客单独维护在其专属 agent 的 memory 里（如 `pike: notes/<podcast>-cue-patterns.md`），而不是写进这份通用 SKILL.md。
+如果该句**对内容主题没有贡献，纯粹是在讨论节目本身的节奏/分工/时长**，就标 `production_talk`。**别因为它是嘉宾说的、礼貌的、衔接流畅的就以为是正文。**
+
+⚠️ 重点：本节判 **delete**，上面 "#### 中文圆桌通用 cue / turn-taking 信号" 那节判 **keep（默认）**。两节里**列的 pattern 有大量重合**，靠 disambiguation 原则区分（看 pattern 后面 2-3 句的走向）。两节都看，别只看一节就下结论。
+
+per-podcast 真有 idiosyncratic 串场语再写进 `profile.cue_patterns`（schema 见上方 profile 注入表）—— shared baseline 已经覆盖中文圆桌绝大多数情况，辟客 / 五点一刻当前都不需要。
 
 ### `repeated_content` 重复识别（重点 — 长嘉宾独白展开）
 
