@@ -1183,7 +1183,11 @@ function scheduleNextSkip(){
 function goTo(idx){
   curIdx=idx;
   const x=S.find(s=>s.idx===idx);
-  if(x){sk(x.s);au.play()}
+  // 只 seek，不自动播放。
+  // - 用户已经在播放 → sk 改 currentTime，浏览器自动从新位置继续播
+  // - 用户暂停状态 → 跳到新位置后保持暂停，要听就点 ▶ 按钮
+  // 2026-06-08 反馈（@Cheny EP21 圆桌）：选中句子时自动播放打断了 review 节奏
+  if(x){sk(x.s);}
   document.querySelectorAll('.row.act').forEach(el=>el.classList.remove('act'));
   const r=document.getElementById('r'+idx);
   if(r){r.classList.add('act');r.scrollIntoView({behavior:'smooth',block:'center'})}

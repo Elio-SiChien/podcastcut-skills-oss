@@ -74,7 +74,7 @@ const profile = require(`${BASE_DIR}/profile.json`);
 | Profile / debrief 字段 | 喂进 LLM 的方式 |
 |---|---|
 | `profile.tone` | 段落级判定时**作为风格基线**："这档播客调性：『{tone}』。这意味着自然停顿、笑声、轻闲聊可能是节目特色，标 delete 前要确认它跟调性是否冲突。" |
-| `profile.default_aggressiveness`（保守/适中/激进） | 决定 `suggest_delete` 的阈值。保守：只标 100% 确定的；适中：含信息密度低；激进：含跑题闲聊和细枝末节展开。**目标删除比例**：保守 10-20% / 适中 20-35% / 激进 35-50%（用作 LLM 自检 anchor） |
+| `profile.default_aggressiveness`（保守/适中/激进） | 决定 `suggest_delete` 的阈值。保守：只标 100% 确定的；适中：含信息密度低；激进：含跑题闲聊和细枝末节展开。**目标删除比例**：保守 10-20% / 适中 20-35% / 激进 35-50%。⚠️ 2026-06-08 教训：**目标比例是 anchor 不是天花板**——agent 实际跑出 8% 然后"诚实交代密度高"是失职，应该按"激进就真的激进"硬扫到 30%+：除了 cue / production_talk 外，重复内容（嘉宾长独白内部同义重述）和与主题弱关联的细节也要标 delete。如果扫不到 30%，**说明扫描信号不够，回去再扫一遍**而不是把责任推给用户在审查页加 |
 | `profile.glossary` | **"拒删名词"列表**：含 glossary 词的句子默认不进 delete，且避免在 glossary 词所在句中切边界（防止切断专有名词上下文） |
 | `profile.default_target_min` | 目标时长 anchor（覆盖 fallback 90 min） |
 | `_debrief.json` 里 `must_keep`（用户钦定必留段） | **硬保护**：覆盖到的句子强制 `keep`，即使匹配 6 种删除类型 |
@@ -89,9 +89,15 @@ const profile = require(`${BASE_DIR}/profile.json`);
 4. 计算各块时长，对比 `profile.default_target_min`
 5. 如仍需删减，按 `profile.default_aggressiveness` 阈值识别信息密度低的段落 → `delete`
 6. **质量优化扫描**（始终执行）：扫描啰嗦重复/过度展开/弱相关细节 → `suggest_delete`，但 glossary 词所在句不进
-7. 微调每个删除块的边界切点（避免在 glossary 词上切）
-8. **写章节导航**：基于通读时划分的话题段落，写出 `chapters` 数组（详见下面 schema）—— **必填**，用户在审查页靠这个跳话题筛选
-9. 写出 `2_分析/semantic_deep_analysis.json`
+7. **激进档专扫**（aggressiveness=激进 时必跑）：
+   a. **cue/production_talk 自然语扫描**：见下方"production_talk cue 流程识别"清单，所有匹配项都标 production_talk
+   b. **重复内容扫描**：在 ≥2 分钟连续嘉宾独白里，找同一观点用 ≥2 段不同措辞反复说的段，标 `repeated_content`
+   c. **弱关联细节扫描**：跟核心话题（用户 onboarding 给的话题大纲 / debrief.must_keep）关联度低的细枝末节，标 `chit_chat` 或 `suggest_delete`
+   d. **节目结尾后段扫描**：从最后一句正式收尾（如"我们下期再见"/"stay tuned"）开始到文件末，全部标 `production_talk`
+8. 微调每个删除块的边界切点（避免在 glossary 词上切）
+9. **写章节导航**：基于通读时划分的话题段落，写出 `chapters` 数组（详见下面 schema）—— **必填**，用户在审查页靠这个跳话题筛选
+10. 写出 `2_分析/semantic_deep_analysis.json`
+11. **自检删除率**：跑完后核对实际 `summary.deleteRatio` vs 目标比例。**保守差距 < 5%、适中差距 < 10%、激进差距 < 10%** 才算合格。如果距离太远，回步骤 7 加大扫描深度，**别交付低删除率的版本让用户自己加**。
 
 **6 种删除类型**：
 
@@ -101,8 +107,25 @@ const profile = require(`${BASE_DIR}/profile.json`);
 | 技术调试 | `tech_debug` | 设备问题、录制中断、音频检查 |
 | 跑题闲聊 | `chit_chat` | 与主题无关的闲聊 |
 | 隐私信息 | `privacy` | 说话人要求删除或敏感个人信息 |
-| 重复内容 | `repeated_content` | 同一段故事讲两遍（保简版删详版） |
-| 制作讨论 | `production_talk` | 录制中讨论剪辑策略 |
+| 重复内容 | `repeated_content` | 同一段故事讲两遍（保简版删详版）；同一个观点用不同措辞反复 |
+| 制作讨论 | `production_talk` | 录制中讨论剪辑策略、cue 流程、节奏调度 |
+
+### `production_talk` 判别原则
+
+如果该句**对内容主题没有贡献，纯粹是在讨论节目本身的节奏/分工/时长**，就标 `production_talk`。**别因为它是嘉宾说的、礼貌的、衔接流畅的就以为是正文。** 不同播客的自然语 cue 模式差别很大——具体的 pattern 清单建议每档播客单独维护在其专属 agent 的 memory 里（如 `pike: notes/<podcast>-cue-patterns.md`），而不是写进这份通用 SKILL.md。
+
+### `repeated_content` 重复识别（重点 — 长嘉宾独白展开）
+
+⚠️ **2026-06-08 反馈（同期）**：嘉宾长独白里经常**同一个观点用 3-4 段不同措辞反复说**，AI 一律保留就让节目啰嗦。识别原则：
+
+| 重复模式 | 示例 |
+| --- | --- |
+| 段内同义重述 | 一段 5 句话里前 2 句说"X 不好"、后 3 句又说"X 不好"换措辞 |
+| 跨段呼应 | 嘉宾在 5 分钟后又把刚才已经说过的同一个故事 / 例子重新讲一遍 |
+| 总结性重复 | "所以我刚才说的就是..."后面整段是对前文的复述 |
+| 引言反复 | 把同一个引言 / 概念在不同小节里都开头一遍 |
+
+判别原则：**只保留信息量最大、最完整、最自然的那一次**。重复的那次（无论是先说的还是后说的）标 `repeated_content` 进 delete。**嘉宾说得长不等于干货密**——尤其要警惕单一嘉宾连续讲 ≥ 2 分钟时段内的内部重复。
 
 **输出格式**（两级结构）：
 ```json
