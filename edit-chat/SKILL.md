@@ -376,6 +376,14 @@ bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
 #    extract_commit_to_export.sh 把 state.committed.json 转成
 #    $BASE_DIR/2_分析/delete_segments_roughcut.json
 bash "$SKILL_DIR/cloud-bridge/scripts/extract_commit_to_export.sh" "$SESSION" roughcut
+
+# 5. 计算粗剪 eval stats → 拼进 chat 报告（"AI 帮你做了什么"）
+EVAL_MSG=$(node "$SKILL_DIR/eval/compare_roughcut.js" \
+  --ai   "$BASE_DIR/2_分析/semantic_deep_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_roughcut.json" \
+  --episode-name "$(basename "$BASE_DIR")" \
+  --format delivery-msg)
+# 把 EVAL_MSG 原样贴进下一条 chat（用户看到 AI 这次帮了多少）
 ```
 
 chat 文案示例：
@@ -387,6 +395,20 @@ https://<tunnel>.trycloudflare.com/r/<session>
 
 随时点 "💾 保存进度"（我等着、不开剪）；
 都满意了点 "✓ 完成开始剪"，我立刻继续精剪。
+```
+
+用户 commit 之后下一条 chat 把 EVAL_MSG（"AI 帮你做了什么"）贴上去：
+
+```
+chat:
+粗剪 AI 帮你做的：
+✓ 抓了 100 段录制讨论 / cue 流程 = 省 7:25
+✓ 抓了 89 段录前准备 = 省 7:23
+你额外加了：7 段（AI 漏标）
+
+这次你接受了我 90% 的粗剪决策——下次继续这样剪。
+
+进精剪。
 ```
 
 **C 备选（路径 C 退路）—— 仅在 cloud-bridge 不可用或用户明确要求时走旧流程**：
@@ -426,6 +448,14 @@ bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
 #    fine stage 下 extract 写
 #    $BASE_DIR/2_分析/delete_segments_edited.json
 bash "$SKILL_DIR/cloud-bridge/scripts/extract_commit_to_export.sh" "$SESSION" fine
+
+# 5. 计算精剪 eval stats → 拼进 chat 报告（"AI 帮你做了什么"）
+EVAL_MSG=$(node "$SKILL_DIR/eval/compare.js" \
+  --ai   "$BASE_DIR/2_分析/fine_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
+  --episode-name "$(basename "$BASE_DIR")" \
+  --format delivery-msg)
+# 把 EVAL_MSG 原样贴进下一条 chat（用户看到 AI 这次帮了多少）
 ```
 
 chat 文案示例：
@@ -436,6 +466,21 @@ chat:
 
 想直接出片就回 "OK"——或者打开下面这页 toggle 一下，点 "✓ 完成开始剪" 我用你的版本出片：
 https://<tunnel>.trycloudflare.com/r/<session>
+```
+
+用户 commit 之后下一条 chat 把 EVAL_MSG（"AI 帮你做了什么"）贴上去：
+
+```
+chat:
+AI 帮你做的：
+✓ 抓了 22 个衔接片段 = 省 7 分钟
+✓ 抓了 251 个口吃/卡顿 = 省 1:15
+✓ 抓了 165 个句首填充词（嗯啊呃） = 省 42 秒
+你额外加了：228 个整句
+
+这次你接受了我 89% 的删除决策——下次继续这样剪。
+
+进出片。
 ```
 
 用户决策（agent 等消息，不主动 fire）：

@@ -243,6 +243,36 @@ open "$BASE_DIR/review_roughcut.html"
 ls "$BASE_DIR/2_分析/delete_segments_roughcut.json"
 ```
 
+#### 4.5 计算粗剪 eval stats → 贴回 chat（"AI 帮你做了什么"）
+
+用户 commit 完审查页 + 导出 `delete_segments_roughcut.json` 后，agent 立刻
+跑 eval 把价值感知报告贴回 chat：
+
+```bash
+node "$SKILL_DIR/eval/compare_roughcut.js" \
+  --ai   "$BASE_DIR/2_分析/semantic_deep_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_roughcut.json" \
+  --episode-name "$(basename "$BASE_DIR")" \
+  --format delivery-msg
+```
+
+输出形如：
+
+```
+粗剪 AI 帮你做的：
+✓ 抓了 100 段录制讨论 / cue 流程 = 省 7:25
+✓ 抓了 89 段录前准备 = 省 7:23
+你额外加了：7 段（AI 漏标）
+
+这次你接受了我 90% 的粗剪决策——下次继续这样剪。
+```
+
+**chat 报告里必须把这段原样贴上去**，让用户看到这一期 AI 的价值。
+不传 `--format delivery-msg` 是开发者用的 markdown 表（更详细，per-type
+precision/recall/F1）+ 追加到 `eval/results_roughcut.jsonl`（longitudinal
+数据，未来 Phase 2 pattern 提取的数据来源）。两个都跑也行（先无 format
+拿 markdown + jsonl，再 `--format delivery-msg` 拿 chat 段落）。
+
 ### 5. 写状态清单（等用户确认）
 
 ```bash

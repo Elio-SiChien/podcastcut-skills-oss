@@ -6,6 +6,8 @@ on real data, and catch regressions before they ship.
 
 ## Quick start
 
+精剪（词级）：
+
 ```bash
 node eval/compare.js \
   --ai   output/<episode>/剪播客/2_分析/fine_analysis.json \
@@ -13,6 +15,21 @@ node eval/compare.js \
   --episode-name <slug> \
   --save
 ```
+
+粗剪（句级）：
+
+```bash
+node eval/compare_roughcut.js \
+  --ai   output/<episode>/剪播客/2_分析/semantic_deep_analysis.json \
+  --user /path/to/delete_segments_roughcut.json \
+  --episode-name <slug> \
+  --save
+```
+
+两者输出 schema 几乎一致（per-type 表 + JSONL longitudinal store）；
+精剪 join 在 `(sentenceIdx, type, ord)` 上，粗剪 join 在 `sentenceIdx` 上
+（句级，没有 ord）。两者 longitudinal store 分文件：精剪 `results.jsonl`、
+粗剪 `results_roughcut.jsonl`，便于 per-stage trend 分析。
 
 What happens:
 

@@ -130,6 +130,35 @@ open "$BASE_DIR/review_enhanced.html"
 ls "$BASE_DIR/2_分析/delete_segments_edited.json"
 ```
 
+#### 6.5 计算精剪 eval stats → 贴回 chat（"AI 帮你做了什么"）
+
+用户 commit 完审查 + 导出后，agent 立刻跑 eval 把价值感知报告贴回 chat：
+
+```bash
+node "$SKILL_DIR/eval/compare.js" \
+  --ai   "$BASE_DIR/2_分析/fine_analysis.json" \
+  --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
+  --episode-name "$(basename "$BASE_DIR")" \
+  --format delivery-msg
+```
+
+输出形如：
+
+```
+AI 帮你做的：
+✓ 抓了 22 个衔接片段 = 省 7 分钟
+✓ 抓了 251 个口吃/卡顿 = 省 1:15
+✓ 抓了 165 个句首填充词（嗯啊呃） = 省 42 秒
+你额外加了：228 个整句
+
+这次你接受了我 89% 的删除决策——下次继续这样剪。
+```
+
+**chat 报告里必须把这段原样贴上去**，让用户看到这一期 AI 的价值。不传
+`--format delivery-msg` 是开发者用的 markdown 表（更详细，per-type
+precision/recall/F1）+ 追加到 `eval/results.jsonl`（longitudinal 数据，
+未来 Phase 2 pattern 提取的数据来源）。
+
 ### 7. 写状态清单（等用户确认）
 
 ```bash
