@@ -138,12 +138,23 @@ stdout 拿到 JSON：
   "default_target_min": 50,
   "default_aggressiveness": "moderate",
   "glossary": ["辟客", "阿司", "雨林", "珊瑚词典", "小宇宙"],
+  "filler_patterns": [],
+  "cue_patterns": [],
   "created_at": "2026-06-02T..." ,
   "updated_at": "2026-06-02T..."
 }
 ```
 
 如果 00 跳过 / 失败：`xiaoyuzhou_*` 字段全为 null 或省略，profile 仍合法。
+
+### 可选字段：`filler_patterns` / `cue_patterns`
+
+| 字段 | 默认 | 用途 |
+|---|---|---|
+| `filler_patterns` | `[]` | per-podcast 填充词扩展。**重要**：单字"对"已从 shared 规则中移除（2026-06-09，因介词/复合词/反问等合法用法太多，shared 规则误报率高），如果某档播客有嘉宾把"对"当口癖、希望精剪规则按 filler 检测处理，把 `"对"` 加进此数组才会启用。其它字符同理（"嗯/啊/呃/额/哦" 默认已在 shared 规则；这里写的是补充） |
+| `cue_patterns` | `[]` | per-podcast 串场语扩展（粗剪 SKILL.md 引用）。中文圆桌通用 cue patterns（"那我来说一下"/"X 你来说"等）已是 shared baseline；某档有 idiosyncratic 表达再加 |
+
+Onboarding 时**不**主动问这俩字段（schema 留空即可），等真出现 use case 时手动改 profile.json。
 
 ## 交付确认（Step 1 用户答完后）
 

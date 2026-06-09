@@ -115,12 +115,18 @@ function getNextSentenceStart(sentIdx) {
 }
 
 // === RULE 0: Sentence-start filler detection (句首填充词) ===
-// Catches: 对，/ 嗯，/ 啊，/ 呃，/ 额，/ 哦，/ 噢，/ 对呀，/ 哎，/ 诶，/ 唉，/ 欸，
+// Catches: 嗯，/ 啊，/ 呃，/ 额，/ 哦，/ 噢，/ 哎，/ 诶，/ 唉，/ 欸，
 // These are the #1 edit type (146 in gold) and 100% deterministic
+//
+// ⚠️ "对" 类（"对", "对呀", "对对", "对对对", "啊对"）已**全部移除**。
+// 2026-06-09 操作员反馈：单字"对"在中文里有太多合法用法（介词
+// "对X来说"、复合词"对立"/"对应"、反问"对吧"、量词"一对"等），即使
+// 句首孤立"对"也常是认同回应或 stutter restart，删了听感更不自然。
+// 默认完全不删；某档播客真有嘉宾把"对"当口癖，写进
+// `profiles/<播客名>.json` 的 `filler_patterns` 数组才启用（schema 见
+// onboarding-chat/SKILL.md）。
 const FILLER_START_SINGLES = ['嗯', '啊', '呃', '额', '哦', '噢', '哎', '诶', '唉', '欸', '唔'];
-const FILLER_START_MULTI = ['对呀', '对对对', '嗯嗯嗯', '嗯嗯', '对对', '啊对'];
-// "对" alone needs context check
-const FILLER_START_AMBIGUOUS = ['对'];
+const FILLER_START_MULTI = ['嗯嗯嗯', '嗯嗯'];
 
 for (const sent of sentences) {
   if (deletedSentences.has(sent.idx)) continue;
@@ -132,7 +138,6 @@ for (const sent of sentences) {
 
   let fillerWordCount = 0;
   let fillerText = '';
-  let isAmbiguous = false;
 
   // Check multi-word fillers first (longer match first)
   const first2 = words.length >= 2 ? (w0 + words[1].text.replace(/[，。！？、：；]/g, '')) : '';
@@ -147,10 +152,6 @@ for (const sent of sentences) {
   } else if (FILLER_START_SINGLES.includes(w0)) {
     fillerWordCount = 1;
     fillerText = words[0].text;
-  } else if (FILLER_START_AMBIGUOUS.includes(w0)) {
-    fillerWordCount = 1;
-    fillerText = words[0].text;
-    isAmbiguous = true;
   }
 
   if (fillerWordCount === 0) continue;
@@ -175,9 +176,7 @@ for (const sent of sentences) {
     deleteStart: parseFloat(deleteWords[0].start.toFixed(2)),
     deleteEnd: parseFloat(deleteWords[deleteWords.length - 1].end.toFixed(2)),
     reason: `句首填充词"${w0}"，后接实质内容`,
-    needsReview: isAmbiguous,
-    reviewHint: isAmbiguous ? `句首"对"可能是回应也可能是口头禅，请根据上下文判断` : undefined,
-    confidence: isAmbiguous ? 0.8 : 0.95
+    confidence: 0.95
   });
 }
 
@@ -236,6 +235,10 @@ for (const sent of sentences) {
       // === Blanket exemptions (never flag) ===
       if (REDUPLICATED_WORDS.has(combined)) { i = endRepeat; continue; }
       if (NUMBER_CHARS.test(curr)) { i = endRepeat; continue; }
+      // "对" 默认完全不进 stutter（详见 RULE 0 / RULE 3 注释）。
+      // 包括 "对对"、"对对对" 等重复模式。Per-podcast 启用见
+      // profile.filler_patterns。
+      if (curr === '对') { i = endRepeat; continue; }
       // ABB叠词豁免: 单字且前一个词不同 → "粉嘟嘟" 结构
       if (repeatCount === 2 && curr.length === 1 && i > 0 && words[i - 1].text !== curr) {
         i = endRepeat; continue;
@@ -331,9 +334,14 @@ for (const sent of sentences) {
 }
 
 // === RULE 3: Mid-sentence filler detection (句中孤立填充词) ===
-// Catches: 啊/呃/额/对/哦 appearing mid-sentence as hesitation fillers
+// Catches: 啊/呃/额/哦 appearing mid-sentence as hesitation fillers
 // Based on 2-填充词检测.md rules
-const MID_FILLERS = new Set(['啊', '呃', '额', '对', '哦']);
+//
+// ⚠️ "对" 已**移除**（2026-06-09）。句中"对"在中文里太容易是介词
+// "本能的对那些..."、复合词"对立"/"对接"、关于关系"对X的依赖"等，规则层
+// 无法判别，默认全保留。Per-podcast 启用见 profile.filler_patterns（见
+// onboarding-chat/SKILL.md）。
+const MID_FILLERS = new Set(['啊', '呃', '额', '哦']);
 
 for (const sent of sentences) {
   if (deletedSentences.has(sent.idx)) continue;
@@ -357,12 +365,6 @@ for (const sent of sentences) {
 
     const globalIdx = sent.wordRange[0] + i;
 
-    // "对" needs extra care: skip if sentence is very short (likely a response "对，对")
-    if (w === '对') {
-      const realWords = words.filter(wd => wd.text.replace(/[，。！？、：；]/g, '').length > 0);
-      if (realWords.length <= 3) continue; // short sentence, "对" is likely a response
-    }
-
     edits.push({
       idx: editIdx++,
       sentenceIdx: sent.idx,
@@ -374,9 +376,7 @@ for (const sent of sentences) {
       deleteStart: parseFloat(words[i].start.toFixed(2)),
       deleteEnd: parseFloat(words[i].end.toFixed(2)),
       reason: `句中填充词"${w}"，前后有实质内容，犹豫/换气`,
-      needsReview: w === '对', // "对" more ambiguous than 啊/呃
-      reviewHint: w === '对' ? '句中口头禅"对"，请确认不是对话回应' : undefined,
-      confidence: w === '对' ? 0.7 : 0.9
+      confidence: 0.9
     });
   }
 }
