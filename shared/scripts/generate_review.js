@@ -236,8 +236,12 @@ if (fineFile && fs.existsSync(fineFile)) {
   const edits = (fa.edits || []).concat(fa.extraFineEdits || []);
   const ordBySent = {};
   for (const ed of edits) {
-    const tStart = ed.ds !== undefined ? ed.ds : (ed.deleteStart !== undefined ? ed.deleteStart : null);
-    const tEnd   = ed.de !== undefined ? ed.de : (ed.deleteEnd   !== undefined ? ed.deleteEnd   : null);
+    // canonical 字段是 deleteStart/deleteEnd；ds/de 是 legacy short alias.
+    // 优先用 canonical 名 —— 如果 ds 跟 deleteStart 不一致（例如外部工具只更新了 deleteStart
+    // 但没清掉 ds 旧值），旧的 ds 会让 review 把跳点放错。曾踩过 path-A 翻译只更新了
+    // deleteStart 留下 stale ds 的坑（2026-06-10 五点一刻 EP1 paraformer 重映射）。
+    const tStart = ed.deleteStart !== undefined ? ed.deleteStart : (ed.ds !== undefined ? ed.ds : null);
+    const tEnd   = ed.deleteEnd   !== undefined ? ed.deleteEnd   : (ed.de !== undefined ? ed.de : null);
     const isTimeOnly = (ed.type === 'silence' || ed.type === 'silence_merged');
     const wr = ed.wordRange;
 

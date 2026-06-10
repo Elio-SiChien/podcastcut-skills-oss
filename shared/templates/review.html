@@ -1248,7 +1248,10 @@ function getSkipRanges(){
       if(!sent.w)continue;
       for(const w of sent.w) if(w.e<=s && w.e>prevEnd) prevEnd=w.e;
     }
-    merged[i][2]=Math.min(LOOKAHEAD_MAX, Math.max(0.05, s-prevEnd));
+    // acoustic 模式 lookahead 下限设为 0：声学对齐时间戳本身就是精确的，
+    // scheduleNextSkip 的 setTimeout 精度（±5-15ms）足够，不需要 50ms 的兜底提前量。
+    // fun-asr 时代留 50ms 是为了赶上 ASR onset lag 在 timeupdate 抖动里抓不到 → 现在不需要。
+    merged[i][2]=Math.min(LOOKAHEAD_MAX, Math.max(TIMESTAMPS_ACOUSTIC?0:0.05, s-prevEnd));
   }
   _skipCache=merged;
   _skipDirty=false;
@@ -1263,7 +1266,9 @@ function skipIfNeeded(){
   const t=au.currentTime, rate=au.playbackRate||1;
   const ranges=getSkipRanges();
   for(const r of ranges){
-    const s=r[0], e=r[1], la=r[2]||0.30;
+    // r[2] 可能是 0（acoustic 模式 lookahead 下限），用 `||` 会被 falsy coercion 当成
+    // missing 回退到 0.30 → 偷偷把 lookahead 拉回 fun-asr 时代的 300ms。用 null 检查兜底。
+    const s=r[0], e=r[1], la=(r[2]!=null?r[2]:0.30);
     if(t>=s-la*rate && t<e){
       // 6d 落点：默认 = e；只有 nextKept 紧邻(<0.5s)才用它（避免跳过整句，陷阱 5）
       let seekTarget=e;
@@ -1282,7 +1287,9 @@ function skipIfNeeded(){
         scheduleNextSkip();
       } else {
         const sv0=au.volume;
-        au.volume=sv0*0.3;
+        // 立即降到 30% 是为遮 fun-asr 时代的"前移 100ms 吃前词"伪影。acoustic 模式没那个伪影，
+        // 不需要 mute → 保留前字尾巴的自然衰减，听感更连贯。
+        if (!TIMESTAMPS_ACOUSTIC) au.volume=sv0*0.3;
         setTimeout(()=>{
           au.volume=0;
           au.currentTime=seekTarget;
@@ -1316,7 +1323,8 @@ function scheduleNextSkip(){
   const t=au.currentTime, rate=au.playbackRate||1;
   const ranges=getSkipRanges();
   for(const r of ranges){
-    const s=r[0], la=r[2]||0.30;
+    // r[2]||0.30 falsy-coerces 0 → 0.30. 用 null 检查（同 skipIfNeeded 的修复）。
+    const s=r[0], la=(r[2]!=null?r[2]:0.30);
     if(s>t){
       const delay=Math.max(0, ((s-t)/rate - la)*1000);
       _skipScheduled=setTimeout(()=>{ _skipScheduled=null; skipIfNeeded(); }, delay);
