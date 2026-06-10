@@ -44,6 +44,19 @@ AUDIO_NAME=$(node -e "console.log(require('$BASE_DIR/project.json').project.id.r
 node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" execute in_progress
 ```
 
+### 0.5. 精修用户半句删除（refine_partial_deletes.js）
+
+```bash
+cd "$BASE_DIR/2_分析"
+# 只在有精剪导出（含 partial_deletes）时跑；粗剪导出没有这个字段，脚本会自动跳过
+if [ -f delete_segments_edited.json ]; then
+  node "$SKILL_DIR/shared/scripts/refine_partial_deletes.js" \
+    --analysis-dir "$BASE_DIR/2_分析"
+fi
+```
+
+> 审查页"选区→标半句删"产生的 `partial_deletes` 直接消费 ASR 字级时间戳。fun-asr 句内字级是均分的（句首/句尾精确，但句内每字 = sentence_dur / char_count 算出来的），用户标的切点会偏离实际声学边界 0.2–2s。这一步用 `refine_boundaries.py` 把每段端点吸附到真实音节边界，跟 `refine_fine_analysis.js`（AI 精剪标精修）同一套机制、不同入口。备份写 `delete_segments_edited_pre_partial_refine.json`。
+
 ### 1. 一键剪辑（cut_audio.py）
 
 ```bash
