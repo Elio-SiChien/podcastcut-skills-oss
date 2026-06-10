@@ -959,6 +959,13 @@ function clearSentenceSelection(){
 // .row.sel 高亮）。Shift/⌘ 修饰键忽略，每次 click 都重置为单 idx。
 const FINE_MODE = (typeof document!=='undefined') && document.body && document.body.classList.contains('fine');
 
+// 字级时间戳是否真声学对齐（paraformer-v2+alignment / fun-asr frame-aligned 模式 → true；
+// fun-asr 16kHz 均分模式 → false）。generate_review.js 从 transcription_meta.json 推断后注入。
+// 影响 preview 跳点逻辑（陷阱 6）：true 时关掉为 fun-asr onset lag 设计的 boundary nudge
+// 和大 lookahead，因为它们在 acoustic 时间戳上反作用，会吃前一个词的尾巴。
+// 不影响导出（doExport 一直没用 nudge）。
+const TIMESTAMPS_ACOUSTIC = __TIMESTAMPS_ACOUSTIC__;
+
 function selectSentence(idx,e){
   if(e){
     e.stopPropagation();
@@ -1178,7 +1185,11 @@ function collectActiveRanges(){
 // 6b 边界 nudge：紧密间隙前移，吃掉 ASR onset lag (~30-100ms)
 // gap < 0.02 (词边界): 100ms；gap < 0.30: min(100ms, gap/2)；否则 min(50ms, gap/2)
 // 纯静音 ranges 不动（边界已精确，nudge 会吃前一保留词）
+// TIMESTAMPS_ACOUSTIC=true 时整体跳过：这条 nudge 是为 fun-asr 的 ASR onset lag 设计的，
+// 在 paraformer-v2+alignment 这种真声学对齐时间戳上反作用，会把前一保留词的尾巴 100ms
+// 一起删掉（实测 EP1 sent 41 删"就是我们的播客"会带走"歉"尾、sent 53 删"啊"会带走"想"）。
 function applyBoundaryNudge(merged, isSil){
+  if(TIMESTAMPS_ACOUSTIC) return;
   for(let i=0;i<merged.length;i++){
     if(isSil[i])continue;
     const s=merged[i][0];
@@ -1222,9 +1233,12 @@ function buildMergedRanges(){
 
 // 6a 自适应 lookahead：每个 range 附加 [2]=安全提前量
 // 句间 gap 大 → 300ms（充裕调度），句内 gap 小 → 50ms（避免吃前词）
+// TIMESTAMPS_ACOUSTIC=true 时上限收紧到 50ms：300ms 的大 lookahead 是为 fun-asr 的 onset
+// lag + JS timeupdate 抖动留的赶上余量，在真声学对齐时间戳上会让 skip 触发得过早，吃前词。
 function getSkipRanges(){
   if(!_skipDirty && _skipCache) return _skipCache;
   const merged=buildMergedRanges();
+  const LOOKAHEAD_MAX = TIMESTAMPS_ACOUSTIC ? 0.05 : 0.30;
   for(let i=0;i<merged.length;i++){
     const s=merged[i][0];
     let prevEnd=0;
@@ -1234,7 +1248,7 @@ function getSkipRanges(){
       if(!sent.w)continue;
       for(const w of sent.w) if(w.e<=s && w.e>prevEnd) prevEnd=w.e;
     }
-    merged[i][2]=Math.min(0.30, Math.max(0.05, s-prevEnd));
+    merged[i][2]=Math.min(LOOKAHEAD_MAX, Math.max(0.05, s-prevEnd));
   }
   _skipCache=merged;
   _skipDirty=false;

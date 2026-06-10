@@ -101,6 +101,41 @@ sentences.forEach((sentence, idx) => {
 const outputFile = 'subtitles_words.json';
 fs.writeFileSync(outputFile, JSON.stringify(words, null, 2));
 
+// 推断字级时间戳是不是真声学对齐，写到 transcription_meta.json 让下游（generate_review.js）读。
+// 信号：句内相邻词时间戳之间有 >1ms 间隙的比例。真声学对齐的 ASR（paraformer-v2 + alignment）
+// 因为真停顿/呼吸/字间隙保留下来，比例 >2%（实测 EP1=5.4% / EP21=14.5%）。后处理均分的 ASR
+// （fun-asr 触发到 16kHz 均分模式时）所有相邻词首尾相连，比例 <1%（实测 EP1=0.2%）。
+// 阈值 2% 是中间值，能把两种模式干净分开。
+//
+// 没有这个 meta 文件的旧项目，review.html 默认 timestamps_acoustic=false（向后兼容 = 保留
+// 原有 fun-asr 时代的边界 nudge 行为）。
+let gapPairs = 0;
+let gapPositive = 0;
+const sentences2 = aliyunData.transcripts[0].sentences;
+for (const s of sentences2) {
+    const ws = s.words || [];
+    for (let i = 0; i < ws.length - 1; i++) {
+        const gap = (ws[i + 1].begin_time - ws[i].end_time) / 1000;
+        gapPairs++;
+        if (gap > 0.001) gapPositive++;
+    }
+}
+const gapRate = gapPairs > 0 ? gapPositive / gapPairs : 0;
+const ACOUSTIC_THRESHOLD = 0.02;
+const meta = {
+    schema_version: 1,
+    generated_at: new Date().toISOString(),
+    timestamps_acoustic: gapRate >= ACOUSTIC_THRESHOLD,
+    signal: {
+        within_sentence_gap_rate: Math.round(gapRate * 10000) / 10000,
+        gap_threshold: ACOUSTIC_THRESHOLD,
+        gap_pairs: gapPairs,
+        gap_positive: gapPositive,
+    },
+};
+fs.writeFileSync('transcription_meta.json', JSON.stringify(meta, null, 2));
+console.log(`📊 transcription_meta: timestamps_acoustic=${meta.timestamps_acoustic} (within-sent gap rate=${(gapRate*100).toFixed(1)}%, threshold ${ACOUSTIC_THRESHOLD*100}%)`);
+
 console.log('✅ 已生成:', outputFile);
 console.log(`   总词数: ${words.filter(w => !w.isGap && !w.isSpeakerLabel).length}`);
 console.log(`   说话人标记: ${words.filter(w => w.isSpeakerLabel).length}`);

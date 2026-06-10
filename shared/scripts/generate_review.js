@@ -348,6 +348,21 @@ template = template.replace(/__PROJECT_NAME__/g, title);
 template = template.replace(/__STAGE_TITLE__/g, fineFile ? '精剪逐字稿' : '粗剪逐字稿');
 template = template.replace(/__BODY_MODE_CLASS__/g, fineFile ? 'fine' : '');
 
+// 读 transcription_meta.json（generate_subtitles_from_aliyun.js 推断出来的）。没有的话
+// 默认 false → review.html 走原有 fun-asr 时代的 boundary nudge 行为，向后兼容。
+// 推断信号是"句内相邻词时间戳之间有 >1ms 间隙的比例 ≥2%"，判定为真声学对齐 ASR
+// (paraformer-v2+alignment / fun-asr frame-aligned 模式)，nudge 反而吃前一个词的尾巴。
+const metaFile = path.join(path.dirname(wordsFile), 'transcription_meta.json');
+let timestampsAcoustic = false;
+try {
+  if (fs.existsSync(metaFile)) {
+    const m = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+    timestampsAcoustic = !!m.timestamps_acoustic;
+    console.log(`📊 transcription_meta: timestamps_acoustic=${timestampsAcoustic}`);
+  }
+} catch (e) { /* ignore, fallback false */ }
+template = template.replace(/__TIMESTAMPS_ACOUSTIC__/g, JSON.stringify(timestampsAcoustic));
+
 fs.writeFileSync(outputFile, template);
 const sizeKB = Math.round(fs.statSync(outputFile).size / 1024);
 
