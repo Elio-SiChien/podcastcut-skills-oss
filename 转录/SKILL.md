@@ -81,7 +81,9 @@ bash "$SKILL_DIR/shared/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEA
 
 #### 4a. 热词注册（task #15，profile.glossary 非空时）
 
-⚠️ **2026-06-09 临时降级**：ASR 模型从 paraformer-v2 回切到 fun-asr（辟客 EP21 task #7 发现 paraformer-v2 长 utterance 时间戳偏 1s+，下游 cut 切在词中间）。热词注册脚本仍以 paraformer-v2 为 target_model；fun-asr 当前不消费 vocabulary_id，所以 profile.glossary 在 fun-asr 路径下**暂时不生效**。fun-asr 兼容热词的方案是 follow-up。
+**ASR 当前选型**：paraformer-v2 + `timestamp_alignment_enabled=true`。CIF predictor 出真声学对齐字级时间戳，alignment flag 做播放对齐二次校准。热词注册全程可用（paraformer-v2 消费 vocabulary_id）。
+
+历史：PR #77 (2026-06-09) 曾从 paraformer-v2 临时回切到 fun-asr，理由是"paraformer 长 utterance 漂 1.45s"；事后查证那次未传 alignment flag。PR #80 (2026-06-10) 切回 paraformer-v2 并加上 alignment flag，同段差异降至 ~180ms。同时 fun-asr 暴露了"输入特性触发的均分模式"坑：某些音频格式触发 16kHz 降采样 pipeline + 后处理均分字级时间戳，partial-delete / highlight 跟读漂 0.2-2s。
 
 阿里云 paraformer-v2 经常把人名/品牌/术语错转成同音字（如 "清扬" → "庆扬"/"清雅"/"青阳"）。如果 profile 有 `glossary`，先注册热词表拿到 `vocabulary_id`，然后把它作为转录脚本的第 3 个参数传入：
 

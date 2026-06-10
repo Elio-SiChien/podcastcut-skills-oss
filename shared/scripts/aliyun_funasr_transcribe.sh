@@ -1,15 +1,21 @@
 #!/bin/bash
 #
-# 阿里云FunASR API转录脚本（用于播客剪辑）
+# 阿里云转录脚本（用于播客剪辑）
 # 用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量> [vocabulary_id]
 #
-# vocabulary_id 可选：paraformer-v2 热词表 ID（见 register_hot_words.sh）
-# ⚠️ 注意：本脚本在 2026-06-09 从 paraformer-v2 回切到 fun-asr。
-# 原因（辟客 EP21 task #7 调试发现）：paraformer-v2 在长 utterance 上时间戳
-# 会偏 1s+（实测"今天这一期辟客对" 整体早 1.45s），下游 cut 切在词中间漏剪。
-# fun-asr 时间戳精准（±0.04s vs Whisper），但长句标点识别较糙——由
-# enhance_punctuation.js（PR #29）补上。
-# Hot words 当前是 paraformer-v2 专用，fun-asr 下 vocabulary_id 会被忽略。
+# 当前 model: paraformer-v2 + timestamp_alignment_enabled=true
+#   - paraformer-v2 用 CIF predictor 出 per-token 真声学对齐时间戳（arXiv:2305.11013）
+#   - timestamp_alignment_enabled=true 在播放对齐层做二次校准，消除上游 ~1s 长 utterance 漂
+#
+# 历史：2026-06-09 (PR #77) 曾从 paraformer-v2 回切到 fun-asr。当时归因是"paraformer 长
+# utterance 漂 1.45s"。事后查证：那次测试**未传 timestamp_alignment_enabled**，所以走的是
+# paraformer 默认（未对齐）路径。复测发现该 flag 把 EP21 同一段差异降到 ~180ms。
+# 同时 fun-asr 暴露了新坑：在某些输入音频特性下（如 44.1kHz stereo MP3）内部走 16kHz 降采样
+# pipeline + 后处理均分时间戳（所有字 234ms 等分），用户半句删和 highlight 跟读会漂 0.2-2s。
+# 所以 paraformer-v2 + alignment 是更稳的默认。详见 PR #80 描述。
+#
+# vocabulary_id 可选：paraformer-v2 热词表 ID（见 register_hot_words.sh）。本次切回 paraformer
+# 也把热词功能找回了 —— fun-asr 时期 vocabulary_id 是被无视的。
 # 也可通过环境变量 VOCABULARY_ID 提供。
 #
 
@@ -51,7 +57,7 @@ fi
 
 API_KEY="$DASHSCOPE_API_KEY"
 
-echo "🎤 提交阿里云FunASR转录任务"
+echo "🎤 提交阿里云转录任务 (paraformer-v2 + timestamp_alignment_enabled)"
 echo "   音频URL: $AUDIO_URL"
 echo "   说话人数: $SPEAKER_COUNT"
 if [ -n "$VOCABULARY_ID" ]; then
@@ -67,11 +73,15 @@ REQUEST_BODY=$(node -e "
   const params = {
     diarization_enabled: true,
     speaker_count: speakerCount,
-    channel_id: [0]
+    channel_id: [0],
+    // timestamp_alignment_enabled: 把 paraformer-v2 CIF 输出的 token 时间戳再做一次播放对齐校准。
+    // 不开的话 paraformer-v2 在长 utterance 上有时偏 1s+（PR #77 把这归因为 paraformer 不可靠）。
+    // 开了以后实测 EP21 同一段漂从 1.45s 降到 ~180ms（refine_boundaries.py 能覆盖）。
+    timestamp_alignment_enabled: true
   };
   if (vocabId) params.vocabulary_id = vocabId;
   const body = {
-    model: 'fun-asr',
+    model: 'paraformer-v2',
     input: { file_urls: [url] },
     parameters: params
   };
