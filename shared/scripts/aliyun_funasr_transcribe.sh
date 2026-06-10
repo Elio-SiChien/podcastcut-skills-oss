@@ -4,6 +4,12 @@
 # 用法: bash aliyun_funasr_transcribe.sh <音频URL> <说话人数量> [vocabulary_id]
 #
 # vocabulary_id 可选：paraformer-v2 热词表 ID（见 register_hot_words.sh）
+# ⚠️ 注意：本脚本在 2026-06-09 从 paraformer-v2 回切到 fun-asr。
+# 原因（辟客 EP21 task #7 调试发现）：paraformer-v2 在长 utterance 上时间戳
+# 会偏 1s+（实测"今天这一期辟客对" 整体早 1.45s），下游 cut 切在词中间漏剪。
+# fun-asr 时间戳精准（±0.04s vs Whisper），但长句标点识别较糙——由
+# enhance_punctuation.js（PR #29）补上。
+# Hot words 当前是 paraformer-v2 专用，fun-asr 下 vocabulary_id 会被忽略。
 # 也可通过环境变量 VOCABULARY_ID 提供。
 #
 
@@ -65,7 +71,7 @@ REQUEST_BODY=$(node -e "
   };
   if (vocabId) params.vocabulary_id = vocabId;
   const body = {
-    model: 'paraformer-v2',
+    model: 'fun-asr',
     input: { file_urls: [url] },
     parameters: params
   };

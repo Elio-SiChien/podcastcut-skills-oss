@@ -81,6 +81,8 @@ bash "$SKILL_DIR/shared/scripts/aliyun_funasr_transcribe.sh" "$AUDIO_URL" "$SPEA
 
 #### 4a. 热词注册（task #15，profile.glossary 非空时）
 
+⚠️ **2026-06-09 临时降级**：ASR 模型从 paraformer-v2 回切到 fun-asr（辟客 EP21 task #7 发现 paraformer-v2 长 utterance 时间戳偏 1s+，下游 cut 切在词中间）。热词注册脚本仍以 paraformer-v2 为 target_model；fun-asr 当前不消费 vocabulary_id，所以 profile.glossary 在 fun-asr 路径下**暂时不生效**。fun-asr 兼容热词的方案是 follow-up。
+
 阿里云 paraformer-v2 经常把人名/品牌/术语错转成同音字（如 "清扬" → "庆扬"/"清雅"/"青阳"）。如果 profile 有 `glossary`，先注册热词表拿到 `vocabulary_id`，然后把它作为转录脚本的第 3 个参数传入：
 
 ```bash
