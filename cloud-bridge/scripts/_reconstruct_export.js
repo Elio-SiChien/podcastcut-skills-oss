@@ -93,10 +93,44 @@ if (Array.isArray(state.segments) && state.segments.length > 0) {
   segments = normaliseSegments(state.segments);
 } else {
   const rawRanges = [];
-  for (const i of sentenceDeletes) {
+  // Sentence_deletes: walk in index order. When consecutive deleted sentences
+  // are also adjacent in INDEX (i, i+1), merge them as one range covering
+  // [first.start, last.end] — this absorbs the inter-sentence silence gap
+  // between them. Without this, gaps (3-5s of silence/breath/laughter) leak
+  // into the output as kept audio. Bug surfaced on 支无不言 EP23: 59 gaps
+  // totalling ~54s leaked, audible as the "laughter/碎音" at the very start.
+  // tolerance-based merge in mergeRanges() can't fix this because gaps are
+  // 0.5-5s wide, far above any sane audio-time tolerance.
+  const sortedDel = sentenceDeletes.slice().sort((a, b) => a - b);
+  let runStart = null;
+  let runEnd = null;
+  let runStartIdx = null;
+  let lastIdx = null;
+  for (const i of sortedDel) {
     const meta = sentByIdx.get(i);
-    if (meta) rawRanges.push([meta.start, meta.end]);
+    if (!meta) continue;
+    if (runStart == null) {
+      runStart = meta.start;
+      runEnd = meta.end;
+      runStartIdx = i;
+      lastIdx = i;
+      continue;
+    }
+    if (i === lastIdx + 1) {
+      // Adjacent sentence index → extend the run to include this sentence's
+      // end, absorbing the gap between lastIdx.end and meta.start.
+      runEnd = meta.end;
+      lastIdx = i;
+    } else {
+      rawRanges.push([runStart, runEnd]);
+      runStart = meta.start;
+      runEnd = meta.end;
+      runStartIdx = i;
+      lastIdx = i;
+    }
   }
+  if (runStart != null) rawRanges.push([runStart, runEnd]);
+
   for (const sIdxKey of Object.keys(partialDeletes)) {
     const sIdx = Number(sIdxKey);
     if (sentenceDeletes.includes(sIdx)) continue;
