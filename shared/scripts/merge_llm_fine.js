@@ -796,11 +796,18 @@ for (const edit of merged) {
   if (!edit._refinePoints) edit._refinePoints = [];
 
   // 查找 deleteStart 前面最近的词
+  // PrevWord 容差：之前用 1ms 太严，ASR 时间戳 typical 浮点漂 4-10ms
+  // 会让"严格在 ds 之前"的词被判定 false negative → prevWord 回退到再前一个真正的内容词，
+  // 然后 pre-onset 扩展 (ds = prevWord.end + 0.05) 多吃了那个内容词的尾巴 100-200ms。
+  // EP23 实测踩坑：第一个 "啊、" 的 prevWord 应该是"付" (end 1697.084) 但因为 ds=1697.08 比它早 4ms
+  // 退到"支" (end 1696.846), 扩展把"付"的尾巴 0.16s 误吃掉。
+  // 容差从 1ms 放宽到 20ms，覆盖典型的 ASR overlap 和 rounding。
+  const PREV_WORD_TOLERANCE = 0.02;
   let prevWord = null;
   let nextWord = null;
   for (const w of speechWords) {
-    if (w.end <= ds + 0.001) prevWord = w;
-    if (w.start >= de - 0.001 && !nextWord) nextWord = w;
+    if (w.end <= ds + PREV_WORD_TOLERANCE) prevWord = w;
+    if (w.start >= de - PREV_WORD_TOLERANCE && !nextWord) nextWord = w;
   }
 
   // ── 陷阱 39: filler pre-onset 扩展 ──
