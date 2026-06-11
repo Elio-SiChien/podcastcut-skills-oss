@@ -88,7 +88,7 @@ See [Action Cards](https://slock.dev/docs/action-cards) for why.
 ## Usage
 
 ```bash
-bash "$SKILL_DIR/dispatcher/scripts/spawn_podcaster_agent.sh" \
+bash "$SKILL_DIR/scripts/spawn_podcaster_agent.sh" \
   <slug> <display_name> [target] [description]
 ```
 
@@ -102,7 +102,7 @@ bash "$SKILL_DIR/dispatcher/scripts/spawn_podcaster_agent.sh" \
 Example:
 
 ```bash
-bash dispatcher/scripts/spawn_podcaster_agent.sh \
+bash scripts/spawn_podcaster_agent.sh \
   pike "辟客" \
   "dm:@xiangge-li" \
   "辟客（雨林 + 阿思 + 嘉宾）的播客剪辑助手 — 转录、粗剪、精剪、音质、后期、出片，全流程。"
