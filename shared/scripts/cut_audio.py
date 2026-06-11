@@ -4,11 +4,16 @@
 
 用法: python3 cut_audio.py [output_name.mp3] [audio_file] [delete_segments.json]
       python3 cut_audio.py [output_name.mp3] [audio_file] [delete_segments.json] --speakers-json subtitles_words.json
+可选: --no-fade  关闭自适应淡入淡出
+      --no-snap  关闭 silence-snap（默认开启）
 默认:
   - output_name: 播客_精剪版_v1.mp3
   - audio_file: 自动检测 ../1_转录/audio_original.*（⚠️ 禁止用 audio.mp3）
   - delete_segments: delete_segments.json
 
+v5: silence-snap — 在切割前对每个 delete segment 的 start/end 边界做一次"贴静音"，
+    把 ASR 时间戳带来的~0.2-1s 漂移吸收到真实静音里，splice 落在低能量段不会
+    切在词中间。可用 --no-snap 关闭。
 v4: 可选说话人音量对齐 — 检测各说话人平均响度，补偿音量差异（最大 +6dB）。
 v3: 自适应淡入淡出 — 每个切点根据片段时长自动加 fade，消除断句感。
 v2: 先解码为 WAV 再切割，确保采样级精确（MP3 -c copy 只有帧级精度 ~26ms）。
@@ -47,6 +52,135 @@ def calc_fade_duration(segment_duration):
 
 
 MAX_GAIN_DB = 6.0  # 最大增益限制，防止过度放大噪声
+
+SILENCE_SNAP_NOISE_DB = -30  # silencedetect 阈值
+SILENCE_SNAP_MIN_DUR = 0.05  # 静音最短判定时长
+
+# 分级策略：silencedetect 在小音量语音上会假阳（"好嘞"读得轻 → 当成静音），
+# 短 deletion 用 aggressive snap 会把假静音里的真语音一起吃掉。
+# 解法：长 deletion（整句/半句删）= 用户明确要删一大块，激进 snap；
+#       短 deletion（filler）= 保守 snap，只贴最近的、紧贴边界的静音。
+SILENCE_SNAP_LONG_DELETE_THRESHOLD = 1.5  # delete >= 这个时长 = "长 delete"
+SILENCE_SNAP_LONG_WINDOW = 1.5  # 长 delete 用大窗口
+SILENCE_SNAP_MAX_DELETE = 60.0  # delete >= 这个时长 = "meta delete"（pre-show/wrap-up），不 snap
+                                # 避免吃到主内容开头/结尾
+
+
+def detect_silences(wav_path, noise_db=SILENCE_SNAP_NOISE_DB, min_dur=SILENCE_SNAP_MIN_DUR):
+    """对 WAV 跑 ffmpeg silencedetect，返回排序后的 [(silence_start, silence_end), ...]"""
+    result = subprocess.run(
+        ['ffmpeg', '-i', wav_path,
+         '-af', f'silencedetect=noise={noise_db}dB:d={min_dur}',
+         '-f', 'null', '-'],
+        capture_output=True, text=True
+    )
+    silences = []
+    cur_start = None
+    for line in result.stderr.split('\n'):
+        m = re.search(r'silence_start:\s*([\d.]+)', line)
+        if m:
+            cur_start = float(m.group(1))
+            continue
+        m = re.search(r'silence_end:\s*([\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)', line)
+        if m and cur_start is not None:
+            silences.append((cur_start, float(m.group(1))))
+            cur_start = None
+    silences.sort()
+    return silences
+
+
+def snap_delete_segments_to_silences(delete_segs, silences,
+                                    window=SILENCE_SNAP_LONG_WINDOW,
+                                    long_threshold=SILENCE_SNAP_LONG_DELETE_THRESHOLD,
+                                    max_delete=SILENCE_SNAP_MAX_DELETE):
+    """
+    把"长 delete"（整句/半句删，duration ≥ long_threshold）的 start / end
+    吸附到真静音边界。
+
+    为什么只动长 delete：
+    - 长 delete = 用户明确要删一大块。ASR 经常把 sentence 末尾 timestamp 标早 0.5-1s
+      （EP21 实测："拓ok下面到我了"句尾 Aliyun 标 614.93，实际话讲完是 615.94），
+      cut 切在句中，剩半句漏网。激进 snap 吸到下一段真静音，整句干净删除。
+    - 短 delete = filler 删（"啊"/"呃"/"嗯"等单字）。
+      silencedetect 在小音量语音上会假阳（"好嘞"读得轻可能当成静音），
+      短 deletion 用激进 snap 会把假静音里的真语音吃掉。
+      filler 的剩余漂移由 fade-in/out 兜底，并通过未来的 onset-aware refinement 处理。
+    - 超长 delete（duration ≥ max_delete，如 pre-show 整段删 / 节目结尾整段删）：
+      也跳过 snap。这种 delete 通常是 meta（删整个开场或结尾），
+      end 容易吸到主内容的开头/结尾把真内容吃掉。
+
+    规则：
+    - delete.start 向左扩到该窗口内**最早**的 silence start
+    - delete.end 向右扩到该窗口内**最晚**的 silence start 对应的 silence end
+    - 约束：不跨越相邻 delete segment 的边界
+
+    返回 (snapped_segs, stats_dict)。
+    """
+    sorted_segs = sorted(delete_segs, key=lambda x: x['start'])
+    snapped = []
+    snap_start_count = 0
+    snap_end_count = 0
+    total_extended = 0.0
+
+    for i, seg in enumerate(sorted_segs):
+        new_start = seg['start']
+        new_end = seg['end']
+        prev_end = sorted_segs[i-1]['end'] if i > 0 else 0.0
+        next_start = sorted_segs[i+1]['start'] if i+1 < len(sorted_segs) else float('inf')
+        dur = seg['end'] - seg['start']
+
+        if long_threshold <= dur < max_delete:
+            # 吸附 start：选窗口内 sil_s 最小（最左）的 silence
+            earliest_silence_for_start = None
+            for sil_s, sil_e in silences:
+                if sil_e < seg['start'] - window:
+                    continue
+                if sil_s > seg['start'] + 0.05:
+                    break
+                if earliest_silence_for_start is None or sil_s < earliest_silence_for_start[0]:
+                    earliest_silence_for_start = (sil_s, sil_e)
+            if earliest_silence_for_start:
+                sil_s, _ = earliest_silence_for_start
+                candidate = max(sil_s, prev_end)
+                if candidate < new_start:
+                    new_start = candidate
+                    snap_start_count += 1
+
+            # 吸附 end：选窗口内 sil_s 最大（最右）的 silence
+            latest_silence_for_end = None
+            for sil_s, sil_e in silences:
+                if sil_e < seg['end'] - 0.05:
+                    continue
+                if sil_s > seg['end'] + window:
+                    break
+                if latest_silence_for_end is None or sil_s > latest_silence_for_end[0]:
+                    latest_silence_for_end = (sil_s, sil_e)
+            if latest_silence_for_end:
+                _, sil_e = latest_silence_for_end
+                candidate = min(sil_e, next_start)
+                if candidate > new_end:
+                    new_end = candidate
+                    snap_end_count += 1
+
+        total_extended += (seg['start'] - new_start) + (new_end - seg['end'])
+        snapped.append({'start': new_start, 'end': new_end})
+
+    # 重新排序 + 合并因 snap 产生的相邻重叠
+    snapped.sort(key=lambda x: x['start'])
+    merged = []
+    for s in snapped:
+        if merged and s['start'] <= merged[-1]['end']:
+            merged[-1]['end'] = max(merged[-1]['end'], s['end'])
+        else:
+            merged.append(dict(s))
+
+    return merged, {
+        'snap_start_count': snap_start_count,
+        'snap_end_count': snap_end_count,
+        'extended_seconds': total_extended,
+        'segments_before': len(sorted_segs),
+        'segments_after': len(merged),
+    }
 
 
 def load_speaker_segments(speakers_json_path):
@@ -234,10 +368,11 @@ def strip_elst_from_m4a(m4a_path):
 
 
 def main():
-    # 参数解析：支持位置参数 + --speakers-json / --no-fade 可选参数
+    # 参数解析：支持位置参数 + --speakers-json / --no-fade / --no-snap 可选参数
     positional_args = []
     speakers_json = None
     no_fade = False
+    no_snap = False
 
     i = 1
     while i < len(sys.argv):
@@ -250,6 +385,9 @@ def main():
                 sys.exit(1)
         elif sys.argv[i] == '--no-fade':
             no_fade = True
+            i += 1
+        elif sys.argv[i] == '--no-snap':
+            no_snap = True
             i += 1
         else:
             positional_args.append(sys.argv[i])
@@ -299,15 +437,6 @@ def main():
         raw = json.load(f)
     delete_segs = raw['segments'] if isinstance(raw, dict) and 'segments' in raw else raw
 
-    # 生成保留片段
-    keep_segs = []
-    last_end = 0
-
-    for seg in delete_segs:
-        if seg['start'] > last_end:
-            keep_segs.append((last_end, seg['start']))
-        last_end = seg['end']
-
     # 获取音频总时长
     result = subprocess.run(
         ['ffprobe', '-v', 'error', '-show_entries',
@@ -316,15 +445,6 @@ def main():
         capture_output=True, text=True
     )
     total_duration = float(result.stdout.strip())
-
-    if last_end < total_duration:
-        keep_segs.append((last_end, total_duration))
-
-    print(f"📊 剪辑统计:")
-    print(f"   保留片段数: {len(keep_segs)}")
-    print(f"   删除片段数: {len(delete_segs)}")
-    print(f"   原始时长: {int(total_duration // 60)}分{int(total_duration % 60)}秒")
-    print("")
 
     # 解码为 WAV（采样级精确切割，MP3 -c copy 只有帧级精度 ~26ms）
     temp_wav = '_source_temp.wav'
@@ -338,6 +458,42 @@ def main():
     subprocess.run(cmd, check=True)
     wav_size_mb = os.path.getsize(temp_wav) / (1024 * 1024)
     print(f"   WAV 临时文件: {wav_size_mb:.0f}MB")
+    print("")
+
+    # 静音吸附：把 ASR 时间戳带来的漂移消化到真实静音里
+    # （除非 --no-snap，例如 unit test 或想严格 byte-replay 旧行为）
+    if not no_snap:
+        print(f"🔈 silence-snap: 检测源音频静音区间（noise<-30dB, ≥{SILENCE_SNAP_MIN_DUR}s）...")
+        silences = detect_silences(temp_wav)
+        print(f"   检测到 {len(silences)} 个静音区间")
+        delete_segs, snap_stats = snap_delete_segments_to_silences(delete_segs, silences)
+        if snap_stats['snap_start_count'] or snap_stats['snap_end_count']:
+            print(f"   吸附 {snap_stats['snap_start_count']} 个 start / {snap_stats['snap_end_count']} 个 end")
+            print(f"   delete 总时长扩展 {snap_stats['extended_seconds']:+.2f}s")
+            if snap_stats['segments_after'] < snap_stats['segments_before']:
+                merged = snap_stats['segments_before'] - snap_stats['segments_after']
+                print(f"   {merged} 个相邻 segment 因 snap 合并")
+        else:
+            print(f"   没有 segment 被吸附（所有边界都已对齐到静音或窗口内无静音）")
+        print("")
+    else:
+        print("⚠️ --no-snap：跳过 silence-snap（边界用 ASR 原值）")
+        print("")
+
+    # 生成保留片段（基于 snap 后的 delete_segs）
+    keep_segs = []
+    last_end = 0
+    for seg in delete_segs:
+        if seg['start'] > last_end:
+            keep_segs.append((last_end, seg['start']))
+        last_end = seg['end']
+    if last_end < total_duration:
+        keep_segs.append((last_end, total_duration))
+
+    print(f"📊 剪辑统计:")
+    print(f"   保留片段数: {len(keep_segs)}")
+    print(f"   删除片段数: {len(delete_segs)}")
+    print(f"   原始时长: {int(total_duration // 60)}分{int(total_duration % 60)}秒")
     print("")
 
     # 说话人音量对齐（可选）
