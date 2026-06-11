@@ -21,50 +21,61 @@ SKILL_DIR="$(readlink -f ~/.claude/skills/podcastcut-后期)"
 
 ---
 
-## 推荐路径：网页 UI（cloud-bridge mastering session）
+## 🌐 默认路径：网页 UI（cloud-bridge mastering session）
 
-> 2026-06-03 加：原来的"chat 一问一答收集 4 件事 + 确认时长方案"流程仍可用（见下），但**推荐**先生成 `mastering.html` 并通过 cloud-bridge 把链接发给用户。用户在一页里完成 3 件事：
->
-> 1. **选金句**——agent 用启发式打分预选 3 条作起点，用户点 ★ 自选 / 取消（最多 6 条）。点行还能播放对应音频片段。
-> 2. **调音乐时长**——片头/片尾滑块（5-30s），实时显示渐入渐出参数。
-> 3. **上传片头/片尾文件**——拖一下，后端流式落到 `<base_dir>/3_后期/theme_<intro|outro>.<ext>`。
->
-> 用户点"完成开始后期" → server 写 `state.committed.json` → agent 拾起 → 跑 mix 脚本。
->
-> ```bash
-> # 1. 生成 HTML（启发式预选 3 条金句）
-> node "$SKILL_DIR/后期/scripts/generate_mastering.js" \
->   --sentences "$BASE_DIR/2_分析/sentences.txt" \
->   --words "$BASE_DIR/1_转录/subtitles_words.json" \
->   --audio "$AUDIO_FOR_PLAYBACK" \
->   --output "$BASE_DIR/3_后期/mastering.html" \
->   --title "<episode name> · 后期审查" \
->   --base-dir "$BASE_DIR"
->
-> # 2. mint session
-> SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_mastering_session.sh" \
->   "$BASE_DIR" \
->   "$BASE_DIR/3_后期/mastering.html" \
->   "$AUDIO_FOR_PLAYBACK")
->
-> # 3. chat 出链接
-> echo "$TUNNEL_URL/m/$SESSION"
->
-> # 4. block until 用户 commit
-> bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
->
-> # 5. 拾起 state.committed.json：里面有 quotes[] / intro_dur / outro_dur /
-> #    intro_filename / outro_filename。上传的文件已经在
-> #    $BASE_DIR/3_后期/theme_intro.* / theme_outro.* 落盘。
-> ```
->
-> 下面那套 chat-only 流程保留作 fallback——cloud-bridge 不可用 / 用户明确要求 chat 交互时用。
+**这是默认且推荐的路径**（2026-06-08 @xiangge-li 确认；旧的 chat 一问一答路径只在 cloud-bridge 不可用时走，见下方 fallback 节）。
+
+用户在一页 `mastering.html` 里完成 3 件事：
+
+1. **选金句**——agent 用启发式打分预选 3 条作起点，用户点 ★ 自选 / 取消（最多 6 条）。点行还能播放对应音频片段。
+2. **调音乐时长**——片头/片尾滑块（5-30s），实时显示渐入渐出参数。
+3. **上传片头/片尾文件**——拖一下，后端流式落到 `<base_dir>/3_后期/theme_<intro|outro>.<ext>`。
+
+用户点"完成开始后期" → server 写 `state.committed.json` → agent 拾起 → 跑 mix 脚本。
+
+```bash
+# 1. 生成 HTML（启发式预选 3 条金句）
+node "$SKILL_DIR/后期/scripts/generate_mastering.js" \
+  --sentences "$BASE_DIR/2_分析/sentences.txt" \
+  --words "$BASE_DIR/1_转录/subtitles_words.json" \
+  --audio "$AUDIO_FOR_PLAYBACK" \
+  --output "$BASE_DIR/3_后期/mastering.html" \
+  --title "<episode name> · 后期审查" \
+  --base-dir "$BASE_DIR"
+
+# 2. mint session
+SESSION=$(bash "$SKILL_DIR/cloud-bridge/scripts/create_mastering_session.sh" \
+  "$BASE_DIR" \
+  "$BASE_DIR/3_后期/mastering.html" \
+  "$AUDIO_FOR_PLAYBACK")
+
+# 3. chat 出链接
+echo "$TUNNEL_URL/m/$SESSION"
+
+# 4. block until 用户 commit
+bash "$SKILL_DIR/cloud-bridge/scripts/watch_commit.sh" "$SESSION"
+
+# 5. 拾起 state.committed.json：里面有 quotes[] / intro_dur / outro_dur /
+#    intro_filename / outro_filename。上传的文件已经在
+#    $BASE_DIR/3_后期/theme_intro.* / theme_outro.* 落盘。
+```
+
+### Agent 行为规约（重要）
+
+- **默认走 mastering 网页路径**，不要在 chat 里挨个问"片头音乐路径？片尾音乐路径？时长？金句选哪几条？"——这些问题让网页一次解决，比 chat 一问一答省 5-10 轮 back-and-forth。
+- **不要"先问用户音乐文件路径"再决定要不要开网页**——直接开网页让用户拖文件上传（cloud-bridge 后端会落地到项目目录）。
+- 文字部分（章节时间戳 / 标题建议 / 简介）**可以在开网页的同时并行做**，等用户 commit mastering 时一并交付。
+- 只有以下情况退回 chat fallback：
+  - `current_tunnel_url.txt` 不存在或 URL 不可达
+  - 用户在 chat 明确说"不用网页"/"直接给我音乐路径就行"
 
 ---
 
-## ⚠️ 启动时必须询问音乐和时长（chat-only fallback）
+## 🔻 Fallback：chat 一问一答（仅在 cloud-bridge 不可用时）
 
-**在开始任何工作之前，必须先询问用户：**
+**仅在上面 cloud-bridge 路径无法使用时走此 fallback。** 默认场景请走上面的网页路径。
+
+如果走此 fallback，在开始任何工作之前，先询问用户：
 
 ```
 在开始最终润色之前，请提供以下信息：
