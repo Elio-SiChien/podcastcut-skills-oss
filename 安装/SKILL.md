@@ -25,32 +25,60 @@ pos: 前置 skill，首次使用前运行
 用户: 准备播客剪辑环境
 ```
 
-## 步骤 0: 注册 Skills
+## 步骤 0: 注册 Skills（snapshot 模式）
 
-Claude Code 从 `~/.claude/skills/` 目录发现 skills。需要创建 symlink 指向本项目的 skill 目录。
+Claude Code 从 `~/.claude/skills/` 目录发现 skills。本项目改用 **snapshot 模式安装**：每次安装从 dev 仓库**复制** SKILL.md 和 shared/ 到 `~/.claude/skills/`，install 完之后 dev 仓库换 branch / checkout 别的 PR 都**不会**影响线上 agent 行为。
 
 ```bash
 # 设置项目路径（根据你 clone 的位置修改）
 PODCASTCUT_DIR="/path/to/podcastcut"
 
-# 创建 symlinks
-ln -s "$PODCASTCUT_DIR/安装"            ~/.claude/skills/podcastcut-安装
-ln -s "$PODCASTCUT_DIR/edit-chat"        ~/.claude/skills/podcastcut-edit-chat
-ln -s "$PODCASTCUT_DIR/粗剪"            ~/.claude/skills/podcastcut-粗剪
-ln -s "$PODCASTCUT_DIR/精剪"            ~/.claude/skills/podcastcut-精剪
-ln -s "$PODCASTCUT_DIR/转录"            ~/.claude/skills/podcastcut-转录
-ln -s "$PODCASTCUT_DIR/执行"            ~/.claude/skills/podcastcut-执行
-ln -s "$PODCASTCUT_DIR/后期"            ~/.claude/skills/podcastcut-后期
-ln -s "$PODCASTCUT_DIR/质检"            ~/.claude/skills/podcastcut-质检
-ln -s "$PODCASTCUT_DIR/音质处理"        ~/.claude/skills/podcastcut-音质处理
-ln -s "$PODCASTCUT_DIR/edit-chat"       ~/.claude/skills/podcastcut-edit-chat
-ln -s "$PODCASTCUT_DIR/onboarding-chat" ~/.claude/skills/podcastcut-onboarding-chat
-ln -s "$PODCASTCUT_DIR/dispatcher"      ~/.claude/skills/podcastcut-dispatcher
+# 一键安装
+bash "$PODCASTCUT_DIR/安装/install.sh"
 ```
 
-验证：在 Claude Code 中按 `/`，应该能看到 `podcastcut-安装`、`podcastcut-edit-chat` 等。
+脚本会：
+1. 把 `shared/` 复制到 `~/.claude/skills/podcastcut-shared/`（canonical snapshot）
+2. 给每个技能创建 `~/.claude/skills/podcastcut-<名>/` 实目录（不是 symlink），里面：
+   - SKILL.md（复制自 dev 仓库）
+   - `shared/` → `../podcastcut-shared/`（symlink，dedup 指向 canonical snapshot）
+   - `output/` → 项目 output 路径（symlink，default `/Volumes/T9/claude_skill/podcastcut/output`）
+3. 写 `install_manifest.json` 记录 install-time 的 git commit + branch + 时间
+4. 跑 pre-flight 自检：所有 `$SKILL_DIR/SKILL.md` / `$SKILL_DIR/shared/scripts` / `$SKILL_DIR/shared/templates` 都存在 → 没问题就报 ✅；否则 fail-fast 提示哪条 path 没装上
 
-> **注意**：如果 `~/.claude/skills/` 目录不存在，先 `mkdir -p ~/.claude/skills/`。
+验证：
+
+```bash
+ls ~/.claude/skills/ | grep podcastcut
+cat ~/.claude/skills/podcastcut-shared/install_manifest.json   # 查看当前 install 版本
+```
+
+> **注意**：如果 `~/.claude/skills/` 目录不存在，install.sh 会自动创建。
+>
+> **环境变量可覆盖**：`OUTPUT_DIR` 改 output 路径；`INSTALL_ROOT` 改安装目标（默认 `~/.claude/skills/`）。
+
+### 更新 / 同步
+
+每次 dev 仓库 `git pull` 之后想把新代码推到线上 agent，**必须重跑 install.sh**：
+
+```bash
+bash "$PODCASTCUT_DIR/安装/install.sh"
+```
+
+不再像以前那样"dev 仓库一改就立刻生效"。这是这个 snapshot 模式的设计取舍：
+- 优：dev 仓库换 branch / 做 worktree / checkout PR 测试，**不影响**线上 agent 行为
+- 缺：必须显式 sync 才能 update 线上行为
+
+### 历史背景：为什么不再用 symlink
+
+旧版本（PR #75 之前）安装是 `ln -s "$PODCASTCUT_DIR/粗剪" ~/.claude/skills/podcastcut-粗剪`。
+表面看是隔离，实际上 `$SKILL_DIR/shared/scripts/<x>` 会路径解析回 dev 仓库的 mutable 文件。
+2026-06-10 上午 wdyk 那次 incident 就是这么炸的：dev 仓库 stuck 在
+`fix/finecut-dui-overdeletion` 分支没切回 main，wdyk 跑 `generate_review.js` 拿到的是
+那个分支上的**旧模板**（缺 PR #66/#68/#71/#72/#73/#74/#75/#77 修复），导致 review 里
+已经修过的 bug "复发"——其实只是路径解析吃了 stale 代码。
+
+PR #83 改成 snapshot 模式根治这个问题。
 
 ## 步骤 1: 安装依赖
 
