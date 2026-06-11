@@ -582,10 +582,40 @@ const totalTimeSaved = merged.reduce((sum, e) => {
 
 console.log('\n🔍 Post-merge gap cleanup...');
 
-// Also include 5a sentence-level deletions
+// Also include 5a sentence-level deletions.
+// 优先级：用户提交的粗剪 sentence_deletes（delete_segments_roughcut.json）> AI 原始
+// semantic_deep_analysis.sentences[]. 同 PR #85 (generate_review.js) 和 PR #88
+// (_reconstruct_export.js) — codebase 整族"用户 intent 是 single source of truth"。
+//
+// 没修之前：post-merge gap cleanup 把 AI 标的 delete 句当成"删除区域"，对其之间的
+// gap 产 silence_merged edit。如果用户在粗剪页 un-check 了 AI 标的连续多句（如
+// EP23 213-215 / 271-281 / 364-373），merge_llm_fine 仍把它们当 delete →
+// silence_merged 桥接产生一个跨越整段 kept 句子的超长（37s+）edit → cut_audio
+// 老实执行，把用户保留的句子误删。EP23 v2 撞了，xiangge-li 报至少 20+ 处。
 const analysisPath = path.join(analysisDir, 'semantic_deep_analysis.json');
+const roughcutExportPath = path.join(analysisDir, 'delete_segments_roughcut.json');
 let sentenceDeleteRanges = [];
-if (fs.existsSync(analysisPath)) {
+let sentenceDeleteSource = 'analysis';
+if (fs.existsSync(roughcutExportPath)) {
+  try {
+    const rcExport = JSON.parse(fs.readFileSync(roughcutExportPath, 'utf8'));
+    if (Array.isArray(rcExport.sentence_deletes)) {
+      sentenceDeleteSource = 'roughcut(user)';
+      for (const idx of rcExport.sentence_deletes) {
+        const sent = sentences.find(st => st.idx === idx);
+        if (sent && actualWords[sent.wordRange[0]] && actualWords[sent.wordRange[1]]) {
+          sentenceDeleteRanges.push([
+            actualWords[sent.wordRange[0]].start,
+            actualWords[sent.wordRange[1]].end
+          ]);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('   ⚠️  Failed to read delete_segments_roughcut.json; falling back to analysis:', e.message);
+  }
+}
+if (sentenceDeleteSource === 'analysis' && fs.existsSync(analysisPath)) {
   const analysis5a = JSON.parse(fs.readFileSync(analysisPath, 'utf8'));
   if (analysis5a.sentences) {
     analysis5a.sentences.forEach(s => {
@@ -601,6 +631,7 @@ if (fs.existsSync(analysisPath)) {
     });
   }
 }
+console.log(`   sentence-delete source for gap cleanup: ${sentenceDeleteSource} (${sentenceDeleteRanges.length} ranges)`);
 
 // Collect all delete ranges (fine edits + 5a)
 let allDeleteRanges = [];
