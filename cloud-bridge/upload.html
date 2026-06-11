@@ -83,33 +83,123 @@
     if (opts.fill != null) fill.style.width = opts.fill + '%';
   }
 
-  function pickAndUpload(file) {
+  // Chunked upload — slice the file into ~5MB parts, POST each one
+  // sequentially with per-chunk retry. Why this replaces the single POST:
+  //   - Cloudflare quick tunnel cancels long-lived requests mid-transfer.
+  //     A 330MB single POST died at 72% with no recovery option for the
+  //     surviving 72% on either side. Chunked retries just the failed part.
+  //   - "100% progress bar" was browser→OS-socket bytes, not server-received
+  //     bytes. Users (Ivy 2026-06-11) closed the tab on visual 100% before
+  //     the server response arrived → silent data loss. Now progress is
+  //     server-ACK'd bytes only.
+  //
+  // CHUNK_SIZE chosen for the CF cancellation envelope: empirically tunnels
+  // hold up to ~200-300 MB in a single request before cutoff risk grows
+  // sharply. 5MB chunks keep any single failure cheap to retry without
+  // explosion in HTTP round-trips for 1GB files (~200 chunks).
+  const CHUNK_SIZE = 5 * 1024 * 1024;
+  const MAX_RETRIES = 3;
+  const RETRY_BASE_MS = 800;
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function sendChunk(file, part, totalParts, attempt = 1) {
+    const start = part * CHUNK_SIZE;
+    const end = Math.min(start + CHUNK_SIZE, file.size);
+    const blob = file.slice(start, end);
+
+    try {
+      const res = await fetch('/api/' + SESSION + '/upload-chunk', {
+        method: 'POST',
+        headers: {
+          // file.type may be empty when the OS doesn't recognize the
+          // extension; octet-stream is fine and the agent sniffs anyway.
+          'content-type': file.type || 'application/octet-stream',
+          'x-upload-part': String(part),
+          'x-upload-total-parts': String(totalParts),
+          'x-upload-total-bytes': String(file.size),
+        },
+        body: blob,
+      });
+      if (!res.ok) {
+        // Server tells us via x-next-part what it actually expects, in case
+        // we got out of sync.
+        const nextPart = res.headers.get('x-next-part');
+        let msg = 'HTTP ' + res.status;
+        try { const j = await res.json(); if (j.error) msg += ' — ' + j.error; } catch {}
+        if (nextPart != null && +nextPart !== part) {
+          // Re-align: the server already has this chunk or expects an
+          // earlier one. Re-call ourselves at the expected part.
+          return { resync: +nextPart };
+        }
+        throw new Error(msg);
+      }
+      return await res.json();
+    } catch (e) {
+      if (attempt >= MAX_RETRIES) throw e;
+      // Exponential backoff with jitter so retries from multiple browsers
+      // don't synchronize. Jitter range ±25% of the base wait.
+      const wait = RETRY_BASE_MS * Math.pow(2, attempt - 1) * (0.75 + Math.random() * 0.5);
+      await sleep(wait);
+      return sendChunk(file, part, totalParts, attempt + 1);
+    }
+  }
+
+  async function pickAndUpload(file) {
     if (!file) return;
     if (file.size > CAP) {
       setState('fail', { icon: '⚠️', label: '文件太大', meta: fmtBytes(file.size) + ' > 上限 ' + fmtBytes(CAP), status: '换个小一点的，或者跟 agent 说调上限' });
       return;
     }
-    setState('busy', { icon: '⏳', label: '上传中…', meta: file.name + ' · ' + fmtBytes(file.size), status: '0%', fill: 0 });
+    setState('busy', { icon: '⏳', label: '上传中…', meta: file.name + ' · ' + fmtBytes(file.size), status: '准备分块…', fill: 0 });
 
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/' + SESSION + '/upload', true);
-    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
-    xhr.upload.onprogress = e => {
-      if (!e.lengthComputable) return;
-      const pct = (e.loaded / e.total) * 100;
-      setState('busy', { fill: pct, status: pct.toFixed(1) + '%' });
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setState('done', { icon: '✅', label: '上传完成', meta: file.name + ' · ' + fmtBytes(file.size), status: 'agent 已收到，可以关掉这页', fill: 100 });
-      } else {
-        let msg = 'HTTP ' + xhr.status;
-        try { const j = JSON.parse(xhr.responseText); if (j.error) msg += ' — ' + j.error; } catch {}
-        setState('fail', { icon: '⚠️', label: '上传失败', meta: file.name, status: msg });
+    const totalParts = Math.ceil(file.size / CHUNK_SIZE);
+    let bytesReceived = 0;
+    let part = 0;
+
+    try {
+      while (part < totalParts) {
+        const result = await sendChunk(file, part, totalParts);
+        if (result.resync != null) {
+          // Server told us a different part is expected (chunk already
+          // landed, or our state got desynced). Jump there.
+          part = result.resync;
+          if (result.bytes_received != null) bytesReceived = result.bytes_received;
+          setState('busy', {
+            fill: (bytesReceived / file.size) * 100,
+            status: '重对齐到块 ' + (part + 1) + ' / ' + totalParts + ' …'
+          });
+          continue;
+        }
+        if (result.bytes_received != null) bytesReceived = result.bytes_received;
+        if (result.done) bytesReceived = file.size;
+        const pct = (bytesReceived / file.size) * 100;
+        const partLabel = '块 ' + (part + 1) + ' / ' + totalParts;
+        const byteLabel = fmtBytes(bytesReceived) + ' / ' + fmtBytes(file.size);
+        setState('busy', { fill: pct, status: partLabel + ' · ' + byteLabel + ' (' + pct.toFixed(1) + '%)' });
+
+        if (result.done) {
+          // The final chunk's 200 response IS the server-side rename
+          // confirmation. Anything before this is just bytes in transit.
+          setState('done', {
+            icon: '✅', label: '上传完成',
+            meta: file.name + ' · ' + fmtBytes(file.size),
+            status: 'agent 已收到，可以关掉这页',
+            fill: 100,
+          });
+          return;
+        }
+        part++;
       }
-    };
-    xhr.onerror = () => setState('fail', { icon: '⚠️', label: '网络出错', meta: file.name, status: '重试一下' });
-    xhr.send(file);
+      // Loop exited without seeing done: true — shouldn't happen given the
+      // server contract, but treat as failure for safety.
+      throw new Error('uploaded all parts but server did not confirm done');
+    } catch (e) {
+      setState('fail', {
+        icon: '⚠️', label: '上传失败', meta: file.name,
+        status: '块 ' + (part + 1) + ' 失败：' + e.message + ' · 试着关页面重传',
+      });
+    }
   }
 
   drop.addEventListener('click', () => { if (!drop.classList.contains('busy') && !drop.classList.contains('done')) fileInput.click(); });

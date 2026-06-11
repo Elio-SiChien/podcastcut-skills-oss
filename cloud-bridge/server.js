@@ -14,7 +14,8 @@
  *   POST /api/:session/save     — 写 draft（review / mastering session 通用）
  *   POST /api/:session/commit   — 写 final + 触发 commit 文件
  *   GET  /api/:session/audio    — proxy 已存在音频，支持 Range
- *   POST /api/:session/upload   — 流式接收用户上传的音频（upload session）
+ *   POST /api/:session/upload   — 流式接收用户上传的音频（upload session，单 POST 旧版）
+ *   POST /api/:session/upload-chunk — chunked / resumable 上传（推荐，~5MB 分块，per-chunk 重试）
  *   POST /api/:session/mastering-upload?slot=intro|outro
  *                               — mastering session 内的音乐切片上传
  *                                 落到 base_dir/3_后期/theme_<slot>.<ext>
@@ -348,6 +349,170 @@ function handleUploadPost(s, req, res) {
     // successful and trigger the pipeline on a half-file.
     if (received !== declaredLen) {
       return finish(false, `truncated: declared ${declaredLen}, got ${received}`);
+    }
+    finish(true);
+  });
+}
+
+// ──────────── /api/:session/upload-chunk — resumable chunked upload ────
+//
+// Why this exists (2026-06-11): trycloudflare quick tunnels cancel large
+// long-lived requests mid-transfer (ivy's 330MB EP1 upload died at 72%).
+// One monolithic POST has no recovery. Chunked POST lets the client retry
+// only the failed chunk and keep the survivor chunks already written to
+// the .partial file.
+//
+// Protocol (sequential, server-state, no reordering):
+//   POST /api/:session/upload-chunk
+//   Headers:
+//     content-type:        audio/* | application/octet-stream
+//     content-length:      <chunk byte count>
+//     x-upload-part:       <0-based chunk index>
+//     x-upload-total-parts:<total number of chunks>
+//     x-upload-total-bytes:<full file byte count, identical across chunks>
+//   Body: raw chunk bytes
+//
+// Server state: <session_dir>/upload.progress.json
+//   { total_bytes, total_parts, next_part, last_chunk_at, partial_path }
+//   - "next_part" is the only chunk the server will accept (sequential).
+//     A retry of the same chunk gets 409 with X-Next-Part header so the
+//     client can re-align.
+//   - Out-of-order chunks → 409 + X-Next-Part. Client either retries the
+//     correct chunk or starts over.
+//   - On the last chunk (next_part === total_parts after append), rename
+//     .partial → final, set meta.status="uploaded", write upload.received.json.
+//
+// Status query: GET /api/:session/state already returns bytes_received and
+// the new fields (next_part, total_parts) appended below.
+function handleUploadChunkPost(s, req, res) {
+  if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
+  const meta = readMeta(s);
+  if (!meta || meta.kind !== 'upload') return sendErr(res, 400, 'not an upload session');
+  if (meta.status === 'uploaded') return sendErr(res, 409, 'already uploaded');
+  if (meta.status === 'expired') return sendErr(res, 410, 'session expired');
+  if (!meta.audio_dest) return sendErr(res, 500, 'meta.audio_dest missing');
+
+  const part = parseInt(req.headers['x-upload-part'] || '', 10);
+  const totalParts = parseInt(req.headers['x-upload-total-parts'] || '', 10);
+  const totalBytes = parseInt(req.headers['x-upload-total-bytes'] || '', 10);
+  const chunkLen = parseInt(req.headers['content-length'] || '0', 10);
+
+  if (!Number.isInteger(part) || part < 0)
+    return sendErr(res, 400, 'invalid x-upload-part');
+  if (!Number.isInteger(totalParts) || totalParts <= 0)
+    return sendErr(res, 400, 'invalid x-upload-total-parts');
+  if (!Number.isInteger(totalBytes) || totalBytes <= 0)
+    return sendErr(res, 400, 'invalid x-upload-total-bytes');
+  if (!chunkLen) return sendErr(res, 411, 'content-length required');
+
+  const cap = Number(meta.max_bytes) || (2 * 1024 * 1024 * 1024);
+  if (totalBytes > cap) return sendErr(res, 413, `payload > ${cap} bytes`);
+
+  const ct = (req.headers['content-type'] || '').toLowerCase();
+  if (!(ct.startsWith('audio/') || ct === 'application/octet-stream' || ct === '')) {
+    return sendErr(res, 415, `unsupported content-type: ${ct}`);
+  }
+
+  fs.mkdirSync(path.dirname(meta.audio_dest), { recursive: true });
+  const partial = meta.audio_dest + '.partial';
+  const progressPath = path.join(sessionDir(s), 'upload.progress.json');
+
+  let progress;
+  try {
+    progress = fs.existsSync(progressPath)
+      ? JSON.parse(fs.readFileSync(progressPath, 'utf8'))
+      : null;
+  } catch (e) { progress = null; }
+  if (!progress) {
+    progress = { total_bytes: totalBytes, total_parts: totalParts, next_part: 0,
+                 partial_path: partial, started_at: Date.now() };
+  } else if (progress.total_bytes !== totalBytes || progress.total_parts !== totalParts) {
+    // Client renegotiated chunking on us — most likely a fresh upload after a
+    // previous failed/abandoned one. Reset to the new spec.
+    progress = { total_bytes: totalBytes, total_parts: totalParts, next_part: 0,
+                 partial_path: partial, started_at: Date.now() };
+    try { fs.unlinkSync(partial); } catch {}
+  }
+
+  // Sequential check. If wrong chunk, tell the client the next expected one
+  // via a header so retries don't need a separate round-trip to /state.
+  if (part !== progress.next_part) {
+    res.setHeader('x-next-part', String(progress.next_part));
+    return sendErr(res, 409,
+      `chunk out of order: got part=${part}, expected ${progress.next_part}`);
+  }
+
+  // Append. Use a write stream in append mode for backpressure handling.
+  const out = fs.createWriteStream(partial, { flags: 'a' });
+  let received = 0;
+  let failed = false;
+
+  const finish = (ok, errMsg) => {
+    if (failed) return;
+    failed = !ok;
+    out.end(() => {
+      // Whether ok or not, persist whatever progress we have so a retry can
+      // pick up. Truncation is detected by the next-part chunk's expected size.
+      if (ok) {
+        progress.next_part = part + 1;
+        progress.last_chunk_at = Date.now();
+        progress.bytes_received = (progress.bytes_received || 0) + received;
+        fs.writeFileSync(progressPath, JSON.stringify(progress, null, 2));
+
+        const isLast = progress.next_part >= progress.total_parts;
+        if (isLast) {
+          // Verify final size before rename. A chunk that lied about its
+          // content-length could leave the .partial smaller than total_bytes.
+          let actualSize = 0;
+          try { actualSize = fs.statSync(partial).size; } catch {}
+          if (actualSize !== totalBytes) {
+            // Don't rename — let the client retry by starting over.
+            return send(res, 500, { ok: false,
+              error: `final size mismatch: expected ${totalBytes}, got ${actualSize}` });
+          }
+          try {
+            fs.renameSync(partial, meta.audio_dest);
+            const finalMeta = readMeta(s) || meta;
+            finalMeta.status = 'uploaded';
+            finalMeta.bytes_received = totalBytes;
+            finalMeta.last_upload = Date.now();
+            writeMeta(s, finalMeta);
+            fs.writeFileSync(path.join(sessionDir(s), 'upload.received.json'),
+              JSON.stringify({ bytes: totalBytes, received_at: Date.now() }, null, 2));
+            // upload.progress.json kept until cleanup so debugging the last
+            // upload doesn't require digging out an archived rename.
+            console.log(`[${s}] chunked upload DONE (${totalBytes} bytes, ${totalParts} parts)`);
+            return send(res, 200, { ok: true, bytes: totalBytes, done: true });
+          } catch (e) {
+            return send(res, 500, { ok: false, error: `rename failed: ${e.message}` });
+          }
+        }
+
+        // Mid-upload progress reporting via meta status (so /state shows it).
+        const finalMeta = readMeta(s) || meta;
+        finalMeta.status = 'uploading';
+        finalMeta.bytes_received = progress.bytes_received;
+        writeMeta(s, finalMeta);
+        return send(res, 200, { ok: true,
+          next_part: progress.next_part,
+          bytes_received: progress.bytes_received,
+          total_bytes: totalBytes });
+      }
+
+      // ok === false → don't advance next_part; client will retry SAME part.
+      console.log(`[${s}] chunked upload FAIL part=${part}: ${errMsg}`);
+      return send(res, 500, { ok: false, error: errMsg });
+    });
+  };
+
+  req.on('data', chunk => { received += chunk.length; });
+  req.on('aborted', () => finish(false, 'client aborted'));
+  req.on('error', e => finish(false, `req error: ${e.message}`));
+  out.on('error', e => finish(false, `disk error: ${e.message}`));
+  req.pipe(out);
+  req.on('end', () => {
+    if (received !== chunkLen) {
+      return finish(false, `chunk truncated: declared ${chunkLen}, got ${received}`);
     }
     finish(true);
   });
@@ -921,7 +1086,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const m = parsed.pathname.match(
-    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|audio|upload|mastering-save|mastering-commit|mastering-upload))$/
+    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|audio|upload|upload-chunk|mastering-save|mastering-commit|mastering-upload))$/
   );
   if (!m) {
     if (parsed.pathname === '/health') return send(res, 200, { ok: true, sessions_dir: SESSIONS_DIR });
@@ -940,6 +1105,7 @@ const server = http.createServer(async (req, res) => {
   if (action === 'commit' && req.method === 'POST') return handleSave(apiSess, req, res, true);
   if (action === 'audio' && (req.method === 'GET' || req.method === 'HEAD')) return handleAudio(apiSess, req, res);
   if (action === 'upload' && req.method === 'POST') return handleUploadPost(apiSess, req, res);
+  if (action === 'upload-chunk' && req.method === 'POST') return handleUploadChunkPost(apiSess, req, res);
   if (action === 'mastering-save' && req.method === 'POST') return handleSave(apiSess, req, res, false);
   if (action === 'mastering-commit' && req.method === 'POST') return handleSave(apiSess, req, res, true);
   if (action === 'mastering-upload' && req.method === 'POST') {
