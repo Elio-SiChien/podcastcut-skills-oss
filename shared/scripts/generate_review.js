@@ -65,11 +65,24 @@ const actualWords = allWords.filter(w => !w.isGap && !w.isSpeakerLabel);
 console.log(`   句子: ${sentences.length}, 词: ${actualWords.length}`);
 
 // ===== 构建删除集合 =====
+// 优先级：用户提交的粗剪 sentence_deletes（--roughcut）> AI 原始 semantic_deep_analysis.sentences[]
+// 这是精剪页的关键正确性：用户在粗剪页恢复的句子不应再被当成删除态渲染。
 const deletedSet = new Set();
 const suggestedSet = new Set();
 const blockMap = {};
 
-if (analysis.sentences) {
+let deleteSource = 'analysis';
+if (roughcutFile && fs.existsSync(roughcutFile)) {
+  const rcEarly = JSON.parse(fs.readFileSync(roughcutFile, 'utf8'));
+  const rcDel = rcEarly.sentence_deletes;
+  if (Array.isArray(rcDel)) {
+    rcDel.forEach(i => deletedSet.add(i));
+    deleteSource = 'roughcut(user)';
+    // suggest_delete 是粗剪阶段的 AI 暗示；用户在 commit 时已经把要删的拉进了 sentence_deletes，
+    // 没拉进的就是要保留。精剪页不再展示 suggest 态。
+  }
+}
+if (deleteSource === 'analysis' && analysis.sentences) {
   analysis.sentences.forEach(s => {
     if (s.action === 'delete') deletedSet.add(s.sentenceIdx);
     if (s.action === 'suggest_delete') suggestedSet.add(s.sentenceIdx);
@@ -332,7 +345,7 @@ const INCOMING_SILENCES = {};
 
 // ===== 统计 =====
 const deletedCount = S.filter(s => s.ai).length;
-console.log(`   总句: ${S.length}, 删除: ${deletedCount}, 保留: ${S.length - deletedCount}`);
+console.log(`   总句: ${S.length}, 删除: ${deletedCount} (源: ${deleteSource}), 保留: ${S.length - deletedCount}`);
 console.log(`   删除块: ${BLK.length}, 章节: ${CHAPS.length}`);
 
 // ===== 注入模板 =====
