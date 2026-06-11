@@ -16,6 +16,7 @@
  *   GET  /api/:session/audio    — proxy 已存在音频，支持 Range
  *   POST /api/:session/upload   — 流式接收用户上传的音频（upload session，单 POST 旧版）
  *   POST /api/:session/upload-chunk — chunked / resumable 上传（推荐，~5MB 分块，per-chunk 重试）
+ *   POST /api/:session/reopen  — 把 committed 状态翻回 draft（让用户/朋友接力再改一版）
  *   POST /api/:session/mastering-upload?slot=intro|outro
  *                               — mastering session 内的音乐切片上传
  *                                 落到 base_dir/3_后期/theme_<slot>.<ext>
@@ -129,6 +130,58 @@ function handleGetState(s, res) {
     payload.committed = isCommitted; // client locks the page read-only when true
     send(res, 200, payload);
   });
+}
+
+// ───────────── /api/:session/reopen — unlock a committed session ──────
+// Use case (operator 2026-06-11): "I committed my fine review, now I want to
+// hand the same URL to a friend so they can keep editing and commit again."
+// Old flow forced the user to DM an agent to manually flip status. Now
+// self-service:
+//   1. operator clicks "再开一版" button on the review page (visible only
+//      when state is committed)
+//   2. server archives the current state.committed.json → state.committed.v<N>.json
+//   3. server copies the committed payload into state.draft.json so the next
+//      page load picks it up as the editing baseline (no edits lost)
+//   4. server deletes state.committed.json + sets meta.status = 'draft'
+//   5. operator (or whoever opens the URL next) edits on top of the previous
+//      version, hits "完成开始剪" again → new commit → cut_audio runs again,
+//      version-stamped output (v(N+1).m4a)
+//
+// Multi-pass: each reopen bumps meta.reopen_count and writes
+// state.committed.v<N>.json so the audit trail is preserved (you can always
+// see what edits the operator vs friend made by diffing the versioned files).
+//
+// Why this is safe with watch_commit.sh: the watcher looks for
+// state.committed.json to APPEAR. On reopen, the file is moved/deleted; the
+// next commit creates a fresh state.committed.json which re-fires the
+// watcher → cut_audio runs again with the new edits.
+function handleReopen(s, res) {
+  if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
+  const meta = readMeta(s);
+  if (!meta) return sendErr(res, 404, 'no meta');
+  if (meta.status !== 'committed') {
+    return sendErr(res, 409, `session not committed (status=${meta.status})`);
+  }
+  const cFile = path.join(sessionDir(s), 'state.committed.json');
+  if (!fs.existsSync(cFile)) {
+    return sendErr(res, 500, 'state.committed.json missing despite committed status');
+  }
+  const n = (meta.reopen_count || 0) + 1;
+  const archived = path.join(sessionDir(s), `state.committed.v${n}.json`);
+  const draftFile = path.join(sessionDir(s), 'state.draft.json');
+  try {
+    fs.copyFileSync(cFile, archived);
+    fs.copyFileSync(cFile, draftFile);
+    fs.unlinkSync(cFile);
+  } catch (e) {
+    return sendErr(res, 500, 'reopen filesystem error: ' + e.message);
+  }
+  meta.status = 'draft';
+  meta.reopen_count = n;
+  meta.last_reopen = Date.now();
+  writeMeta(s, meta);
+  console.log(`[${s}] REOPEN (archived as v${n}, status=draft)`);
+  send(res, 200, { ok: true, reopen_count: n, archived: `state.committed.v${n}.json` });
 }
 
 async function handleSave(s, req, res, commit) {
@@ -1086,7 +1139,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const m = parsed.pathname.match(
-    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|audio|upload|upload-chunk|mastering-save|mastering-commit|mastering-upload))$/
+    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|reopen|audio|upload|upload-chunk|mastering-save|mastering-commit|mastering-upload))$/
   );
   if (!m) {
     if (parsed.pathname === '/health') return send(res, 200, { ok: true, sessions_dir: SESSIONS_DIR });
@@ -1103,6 +1156,7 @@ const server = http.createServer(async (req, res) => {
   if (action === 'state' && req.method === 'GET') return handleGetState(apiSess, res);
   if (action === 'save' && req.method === 'POST') return handleSave(apiSess, req, res, false);
   if (action === 'commit' && req.method === 'POST') return handleSave(apiSess, req, res, true);
+  if (action === 'reopen' && req.method === 'POST') return handleReopen(apiSess, res);
   if (action === 'audio' && (req.method === 'GET' || req.method === 'HEAD')) return handleAudio(apiSess, req, res);
   if (action === 'upload' && req.method === 'POST') return handleUploadPost(apiSess, req, res);
   if (action === 'upload-chunk' && req.method === 'POST') return handleUploadChunkPost(apiSess, req, res);

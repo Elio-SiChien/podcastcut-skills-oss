@@ -1653,7 +1653,57 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
   btnCommit.textContent = '完成，开始剪';
   topbar.appendChild(btnCommit);
 
+  // "再开一版"按钮：只在 server 返回 committed=true 时显示。点击会调
+  // POST /api/:session/reopen 把 server 状态翻回 draft（同时把 committed 的
+  // 快照存为 state.committed.v<N>.json 做 audit），然后页面解锁，用户/朋友
+  // 可以接力继续改 → 再 commit → 再生成 v(N+1).m4a。
+  // 用例：操作员 commit 自己版本 → 想分享给朋友审改 → 不用 DM agent，自己点。
+  const btnReopen = document.createElement('button');
+  btnReopen.className = 'expbtn';
+  btnReopen.id = 'cb-reopen';
+  btnReopen.textContent = '🔓 再开一版给别人编辑';
+  btnReopen.style.marginLeft = '8px';
+  btnReopen.style.display = 'none';
+  btnReopen.style.background = '#fff4d6';
+  btnReopen.style.borderColor = '#d97706';
+  topbar.appendChild(btnReopen);
+
   function setStatus(msg, color){ statusEl.textContent = msg; if (color) statusEl.style.color = color; }
+
+  // committed=true → 锁掉编辑按钮、亮出 reopen；reopen 之后翻回。
+  function setCommittedUi(isCommitted) {
+    btnSave.disabled = isCommitted;
+    btnCommit.disabled = isCommitted;
+    btnSave.style.opacity = isCommitted ? '.4' : '1';
+    btnCommit.style.opacity = isCommitted ? '.4' : '1';
+    btnReopen.style.display = isCommitted ? '' : 'none';
+  }
+
+  // reopen 点击：自带 confirm + 自动复制当前 URL 到剪贴板，方便操作员转发。
+  btnReopen.onclick = async () => {
+    if (!confirm('解锁这条 URL 给别人接力编辑？\n\n- 你刚才提交的版本会存档（state.committed.v1.json 等）\n- 朋友打开同样 URL 会看到你的版本作为起点\n- ⚠️ 同一时刻只能一个人改，别俩同时开\n- 🔒 链接收到的人能看全文')) return;
+    btnReopen.disabled = true;
+    setStatus('解锁中…');
+    try {
+      const r = await fetch(`/api/${SESSION}/reopen`, { method: 'POST' });
+      if (!r.ok) {
+        let msg = 'HTTP ' + r.status;
+        try { const j = await r.json(); if (j.error) msg += ' — ' + j.error; } catch {}
+        throw new Error(msg);
+      }
+      const j = await r.json();
+      // try to put the URL on the clipboard — non-fatal if it fails (browser
+      // permissions, focus, etc.). User can always manually copy from the
+      // address bar.
+      try { await navigator.clipboard.writeText(window.location.href); } catch {}
+      setStatus(`✓ 已解锁（v${j.reopen_count} 已存档）· 链接已复制，发给朋友`, '#1f6feb');
+      setCommittedUi(false);
+    } catch (e) {
+      setStatus('✗ 解锁失败：' + e.message, '#c0392b');
+    } finally {
+      btnReopen.disabled = false;
+    }
+  };
 
   // 2. POST 状态到 server
   async function postState(commit){
@@ -1676,10 +1726,7 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
       const j = await r.json();
       if (commit) {
         setStatus('✓ 已提交，agent 继续剪辑', '#1f6feb');
-        btnSave.disabled = true;
-        btnCommit.disabled = true;
-        btnSave.style.opacity = '.4';
-        btnCommit.style.opacity = '.4';
+        setCommittedUi(true);
       } else {
         setStatus(`✓ 已保存 ${new Date().toLocaleTimeString()}`, '#9bb083');
       }
@@ -1723,7 +1770,11 @@ function showT(m){const el=document.getElementById('toast');el.textContent=m;el.
       if (s.rdExp) { rdExp.clear(); s.rdExp.forEach(k => rdExp.add(k)); }
       invalidateSkipRanges();
       renderAll();
-      setStatus('载入服务器版本（' + new Date(s.timestamp || s.received_at).toLocaleString() + '）');
+      // Page lock-state follows server: committed = lock save/commit + show
+      // "再开一版"; draft = normal editing.
+      setCommittedUi(!!s.committed);
+      setStatus('载入服务器版本（' + new Date(s.timestamp || s.received_at).toLocaleString() + '）'
+        + (s.committed ? ' · 已提交' : ''));
     } catch (e) { /* fallback to localStorage */ }
   })();
 
