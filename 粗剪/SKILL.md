@@ -51,7 +51,7 @@ node "$SKILL_DIR/shared/scripts/manifest.js" set-stage "$BASE_DIR" roughcut in_p
 ```
 > 上游契约：`2_分析/sentences.txt`、`1_转录/subtitles_words.json`、`1_转录/audio_seekable.mp3` 应已存在（转录单元产出）。缺失则先跑 `/podcastcut-转录`。
 
-### 1. 加载播客 profile（激进度 / 调性 / glossary）
+### 1. 加载播客 profile（激进度 / 调性 / glossary）+ 历史课
 
 ```javascript
 // chat 服务下发的播客 profile（onboarding-chat skill 生成）
@@ -64,6 +64,31 @@ const profile = require(`${BASE_DIR}/profile.json`);
 - `profile.tone` 拼进 LLM system prompt，影响段落判定风格
 - `profile.glossary` 中的术语在 AI 段落分析里"拒删"（保护专有名词所在句）
 - `_debrief.json` 里 `must_keep` 段进硬保护；`privacy` 段优先标 delete
+
+**历史课加载**（per-podcast learning，从过往审稿沉淀）：
+
+```bash
+# 加载这档播客累计的 roughcut lessons（这档播客每次用户审稿后追加，
+# 比 detector_overrides 更 qualitative —— 解决"嘉宾 anecdote 别标 chit_chat"
+# 这种判断类规则）
+LESSONS_MD=$(node "$SKILL_DIR/eval/load_lessons.js" \
+  --profile "$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$BASE_DIR/profile.json','utf8')).name||'')")" \
+  --scope roughcut)
+# LESSONS_MD 是 markdown bullet list, 形如：
+#   ### 历史课（这档播客 roughcut 沉淀的 6 条规则，判断时优先参考）
+#   - 嘉宾用类比/故事讲观点 → KEEP，别标 chit_chat ...
+#   - Founders 远见 / leadership conviction → KEEP ...
+# 把这个 block **拼在第 2 步 LLM prompt 的 "判断准则" 段最前面**，
+# 比"6 种删除类型"那张表的优先级更高 —— 这是从这档播客的实际审稿数据学到的，
+# 比 baseline rule 更贴合本档调性。
+```
+
+文件位置：`profiles/<播客名>.roughcut.lessons.jsonl`（append-only，每行 1 条 lesson JSON）。Schema 与 jsonl 写入约定见 `profiles/README.md § "lessons.jsonl 字段约定"`。
+
+**追加新 lesson 的时机**（agent 在用户 commit 后自己写）：
+1. 粗剪 commit → 跑 `compare_roughcut.js` → 找到 retention 异常的 type → agent 阅读差异、提炼 1-3 条 generalized rule、append 到本文件
+2. 精剪 commit 时如果用户改了 `sentence_deletes`（说明听音频后调整了粗剪判断）→ source 标 `xiangge_fine_listen_diff`, weight 1.5（比纯文本视角的 commit 信号更强）
+3. 用户在 chat 直接说 "记一下：嘉宾 anecdote 别标 chit_chat" → agent 解析并 append
 
 ### 2. 段落级 AI 分析 → `semantic_deep_analysis.json`
 

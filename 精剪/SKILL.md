@@ -64,6 +64,20 @@ node "$SKILL_DIR/shared/scripts/run_fine_analysis.js" --analysis-dir "$BASE_DIR/
 
 分批读取 `sentences.txt`（**50–80 句/批**，防注意力稀释）+ `fine_analysis_rules.json`：
 - **⚠️ 必须先读 `基础剪辑规则/LLM精剪prompt模板.md`**，按检测清单逐句校对（像"校对员"而非"读者"）。
+- **加载这档播客的 fine 历史课**（per-podcast learning，从过往审稿沉淀）：
+
+  ```bash
+  LESSONS_MD=$(node "$SKILL_DIR/eval/load_lessons.js" \
+    --profile "$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('$BASE_DIR/profile.json','utf8')).name||'')")" \
+    --scope fine)
+  # LESSONS_MD 是 markdown bullet list, 形如：
+  #   ### 历史课（这档播客 fine 沉淀的 4 条规则，判断时优先参考）
+  #   - 句首组合填充词 '嗯，' '嗯对，' 应标 filler_start ...
+  #   - 嘉宾说错纠正型重复 (例 '2014年呃，2011年开始') 应删第一次 ...
+  # 把这个 block 拼在 LLM prompt 的"检测清单"前面，比 baseline 规则优先级更高。
+  ```
+  文件位置：`profiles/<播客名>.fine.lessons.jsonl`（append-only，schema 见 `profiles/README.md § "lessons.jsonl 字段约定"`）。
+
 - 如用户 feedback 影响本次精剪 / 播客长期偏好 / 全局规则，先按 `docs/feedback-routing-SOP.md` 判定 scope；当前 episode 明确指令 > podcast profile > global baseline。
 - **最高优先级：重说纠正**（`self_correction`，11 种子模式，占 LLM 独有价值 39%）。
 - 还检：残句 / 纯填充句 / 重复句（语义判断）、录制讨论、规则层 `needsReview` 的 confirm/reject、规则层补漏（仅 ASR 分词遗漏）。
