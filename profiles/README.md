@@ -41,10 +41,25 @@ After each roughcut/fine commit (extract → `delete_segments_*.json` written), 
 1. Runs `eval/compare_roughcut.js` (or `compare.js` for fine) to see retention per type
 2. Reads the diff: AI-marked-but-user-restored + user-marked-but-AI-missed
 3. Looks for patterns (≥2 similar examples in same episode, OR ≥1 example of a previously hypothesized rule)
-4. Drafts a generalized 1-sentence rule
-5. Appends to the appropriate `.lessons.jsonl`
+4. Drafts 1-3 generalized rules
+5. **Chats the candidate rules back to user for confirmation** (don't write silently — user picks which to accept / asks for wording changes)
+6. Appends accepted rules to the appropriate `.lessons.jsonl`
+7. Runs `eval/check_cross_podcast_promotion.js --scope <scope> --focus <new_id>` — if the new lesson clusters with ≥3 podcasts' independent rules, agent surfaces a promotion candidate to the operator via DM
+
+Full step-by-step lives in `粗剪/SKILL.md § 4.6` and `精剪/SKILL.md § 6.6`.
 
 Manual override: user can say in chat "记一下：嘉宾 anecdote 别标 chit_chat" → agent extracts rule + appends with `source: "manual"`.
+
+## Cross-podcast promotion
+
+`eval/check_cross_podcast_promotion.js` scans every `*.{roughcut,fine}.lessons.jsonl` under `profiles/`, clusters rules by 2-3-gram char-gram Jaccard similarity (default ≥0.4), and emits any cluster covering ≥3 distinct podcasts (default `--min-podcasts 3`).
+
+Workflow when triggered:
+1. Agent reports clustered rules to operator with the source podcast/lesson IDs
+2. Operator decides to promote: agent opens a PR adding the rule to baseline `粗剪/SKILL.md` or `精剪/SKILL.md`
+3. Each contributing lesson in the source `.lessons.jsonl` files gets a `"promoted_to_baseline": "<ISO date>"` field added so future `load_lessons.js` runs skip it (prevents duplicate prompt injection alongside the now-baseline rule)
+
+Rules promoted this way become zero-shot defaults for new podcasts — the per-podcast lessons file then only collects podcast-specific outliers.
 
 ## Why two stage-specific files (not one)
 

@@ -173,6 +173,77 @@ AI 帮你做的：
 precision/recall/F1）+ 追加到 `eval/results.jsonl`（longitudinal 数据，
 未来 Phase 2 pattern 提取的数据来源）。
 
+#### 6.6 提炼精剪 lesson 候选 → 跟用户确认 → 写回 fine.lessons.jsonl
+
+**agent 自己用 LLM 推理做**（不调单独脚本）。每次精剪 commit 后这一步**必跑**——
+否则 lessons 永远不增长。流程与粗剪 SKILL § 4.6 同款，但 diff 的输入和判断角度不同。
+
+1. **读 raw diff** —— 关注 2 类：
+
+   **(a) AI 标过但被用户 revert 的 fine_edit（精度损失）**：
+   ```bash
+   node "$SKILL_DIR/eval/compare.js" \
+     --ai "$BASE_DIR/2_分析/fine_analysis.json" \
+     --user "$BASE_DIR/2_分析/delete_segments_edited.json" \
+     --episode-name "<EP>" 2>&1 | grep -A 30 "Per-type"
+   # 输出 per-type retention. < 80% 的 type 通常已经触发 Stage 2 detector_overrides
+   # 流程；这里关注剩下的、不到 disable 阈值但有规律的 false positive
+   ```
+
+   **(b) 用户加的 partial_deletes（AI 漏检 → 召回损失）**：
+   ```bash
+   node -e "
+   const fs = require('fs');
+   const sents = {}; for (const l of fs.readFileSync('$BASE_DIR/2_分析/sentences.txt','utf8').split('\n').filter(Boolean)) {
+     const p = l.split('|'); sents[parseInt(p[0],10)] = p[3];
+   }
+   const edited = JSON.parse(fs.readFileSync('$BASE_DIR/2_分析/delete_segments_edited.json','utf8'));
+   for (const [idx, arr] of Object.entries(edited.partial_deletes||{})) {
+     const t = sents[idx] || '';
+     for (const p of arr) {
+       const del = t.slice(p.cs, p.ce);
+       const before = t.slice(Math.max(0, p.cs-8), p.cs);
+       const after = t.slice(p.ce, Math.min(t.length, p.ce+8));
+       console.log(\`idx \${idx} cs:\${p.cs} ce:\${p.ce} → \"\${del}\" | ctx: \${before}【\${del}】\${after}\`);
+     }
+   }
+   "
+   ```
+
+2. **agent 阅读这些 partial_deletes**，找句首/句中 disfluency 的共性 pattern
+   （ex: 句首 "嗯，" "嗯对，" 没被 filler_start 抓住 / 嘉宾说错纠正 "2014 呃 2011" 跨 stutter+filler 边界漏 / 短词回声 "穿越穿越"）。
+
+3. **chat 把候选 1-3 条 rule 贴给用户确认**：
+
+   ```
+   chat:
+   这期我观察到 N 个精剪 pattern:
+
+   F. 句首 "嗯对，" 我没标 filler_start，你手动加了 5 处（idx 137/140/143/171/180）
+   G. 嘉宾说错纠正 "2014年呃，2011年" 这种数字跨 stutter+filler 边界我漏了 3 次
+
+   要采纳哪些写进 fine lessons？同款 ABC 选项, 或改措辞。
+   ```
+
+4. **append 到** `~/.claude/skills/podcastcut-skills/profiles/<播客名>.fine.lessons.jsonl`：
+
+   ```bash
+   cat >> "$LESSONS_FILE" <<'EOF'
+   {"id":"F00X","scope":"fine","rule":"<采纳的 rule>","evidence_episodes":["EP<n>"],"evidence_indices":[[<idx>,<idx>]],"source":"<commit_diff|fine_listen_diff>","added_at":"<ISO>","weight":1.5}
+   EOF
+   ```
+
+   精剪场景默认 weight 1.5（audio-aware，因为精剪 partial_deletes 是用户听完短句后才标的，比 text 视角更精）。
+
+5. **append 完跑 cross-podcast promotion check**：
+
+   ```bash
+   node "$SKILL_DIR/eval/check_cross_podcast_promotion.js" --scope fine --focus "F00X"
+   ```
+
+   ≥3 档播客有语义相似 fine rule → DM 跟 @xiangge-li 报，开 PR 升 baseline
+   `精剪/SKILL.md` 的 baseline detector / prompt 规则（不是 `detector_overrides` 那一层）。
+
 ### 7. 写状态清单（等用户确认）
 
 ```bash

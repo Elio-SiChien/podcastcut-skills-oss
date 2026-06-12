@@ -298,6 +298,79 @@ precision/recall/F1）+ 追加到 `eval/results_roughcut.jsonl`（longitudinal
 数据，未来 Phase 2 pattern 提取的数据来源）。两个都跑也行（先无 format
 拿 markdown + jsonl，再 `--format delivery-msg` 拿 chat 段落）。
 
+#### 4.6 提炼 lesson 候选 → 跟用户确认 → 写回 lessons.jsonl
+
+**agent 自己用 LLM 推理做**（不调单独脚本）。每次粗剪 commit 后这一步**必跑**——
+否则 lessons 永远只有 bootstrap 的，不会增长。
+
+1. **读 raw diff**（不只是 retention 数字，要看具体哪几个 idx 被 restore / 新加）：
+
+   ```bash
+   node -e "
+   const fs = require('fs');
+   const ai = JSON.parse(fs.readFileSync('$BASE_DIR/2_分析/semantic_deep_analysis.json','utf8'));
+   const user = JSON.parse(fs.readFileSync('$BASE_DIR/2_分析/delete_segments_roughcut.json','utf8'));
+   const aiDel = new Set(ai.sentences.filter(s=>s.action==='delete').map(s=>s.sentenceIdx));
+   const aiType = {}; for (const s of ai.sentences) if (s.action==='delete') aiType[s.sentenceIdx]=s.type;
+   const userDel = new Set(user.sentence_deletes||[]);
+   console.log('AI marked but user restored:');
+   for (const i of aiDel) if (!userDel.has(i)) console.log(' idx', i, '(' + aiType[i] + ')');
+   console.log('User added that AI missed:');
+   for (const i of userDel) if (!aiDel.has(i)) console.log(' idx', i);
+   "
+   ```
+
+2. **agent 阅读 sentences.txt 里这些 idx 的 text**，识别 ≥2 例的 pattern。
+   不需要 LLM API 调用——agent 自己（Claude opus 在 chat 里）有这个推理能力。
+
+3. **chat 把候选 1-3 条 rule 贴给用户确认**（**不要静默写入**）：
+
+   ```
+   chat:
+   这期我观察到 N 个 pattern 可以沉淀成规则：
+
+   A. 嘉宾用 Cyberport 类比 → KEEP (3 例: idx 32, 47, 89; 我标 chit_chat 你都恢复了)
+   B. 主持 "我们正式开始" → DELETE (我漏标, 你加了 2 处)
+
+   要采纳哪些写进这档播客的 roughcut lessons？
+   - "ABC 都采纳" / "只 A" / "都不要"
+   - 或 "改一下措辞: ..."（你帮我修 rule 文字, 让它更准）
+   ```
+
+4. **用户确认后** append 到 `~/.claude/skills/podcastcut-skills/profiles/<播客名>.roughcut.lessons.jsonl`：
+
+   ```bash
+   cat >> "$LESSONS_FILE" <<'EOF'
+   {"id":"L00X","scope":"roughcut","rule":"<采纳的 rule>","evidence_episodes":["EP<n>"],"evidence_indices":[[<idx>,<idx>]],"source":"ivy_commit_diff","added_at":"<ISO>","weight":1.0}
+   EOF
+   ```
+
+   weight 约定: 1.0 = 粗剪 commit 时观察的（text 视角），1.5 = 精剪听完后才发现的（audio-aware，信号更强），2.0 = 跨类型 meta 规则。
+
+5. **append 完立刻跑 cross-podcast promotion check**：
+
+   ```bash
+   node "$SKILL_DIR/eval/check_cross_podcast_promotion.js" \
+     --scope roughcut --focus "L00X"
+   ```
+
+   如果输出 "No promotion candidates" → done。
+
+   如果输出 promotion candidate（≥3 档播客有语义相似 rule）→ agent 在 DM 跟 @xiangge-li 报：
+
+   ```
+   🚀 跨档共识 lesson 候选:
+   规则 "嘉宾 anecdote → KEEP" 在 3 档播客被独立采纳:
+   - zwby L001 (EP23, ivy_commit_diff)
+   - pike L005 (PIKE-15, jianjian_commit_diff)
+   - wdyk L012 (501-9, mayia_commit_diff)
+
+   要不要开 PR 升级到 baseline 粗剪 SKILL.md？
+   ```
+
+   @xiangge-li 同意 → 开 PR 改 SKILL.md 加 baseline rule + 把 3 档对应 lesson 标
+   `"promoted_to_baseline": "2026-MM-DD"`（lessons.jsonl 加字段，下次 load 时 skip）。
+
 ### 5. 写状态清单（等用户确认）
 
 ```bash
