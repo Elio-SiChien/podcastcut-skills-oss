@@ -14,6 +14,7 @@ bash shared/scripts/tests/run_all.sh
 python3 shared/scripts/tests/test_silence_snap.py
 bash    shared/scripts/tests/test_asr_model.sh
 python3 shared/scripts/tests/test_punctuation_density.py
+bash    shared/scripts/tests/test_cli_smoke.sh
 ```
 
 ## 测试
@@ -59,6 +60,17 @@ python3 shared/scripts/tests/test_punctuation_density.py
 5. 邻近 delete 重叠后正确 merge
 6. 超窗口的静音不吸
 7. 没有静音时不动
+
+### `test_cli_smoke.sh`
+**守住**：fresh agent 的最小自检入口不能漂。`status` 必须能读 `project.json`，
+`validate` 必须能按阶段检查交接文件。
+
+**测试**：创建一个临时 `output/<project>/剪播客` fixture，写入最小 `project.json`
+和阶段交接文件，然后依次跑：
+- `node tools/podcastcut.mjs status <BASE_DIR>`
+- `node tools/podcastcut.mjs validate <BASE_DIR> <stage>`
+
+不需要网络、API key、真实音频或 cloud-bridge。
 
 ## 加新 test 的原则
 

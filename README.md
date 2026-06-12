@@ -63,6 +63,8 @@ PYTHON=.venv/bin/python npm run doctor
 
 ## 自检命令
 
+Fresh agent onboarding: see `AGENT_ONBOARDING.md`.
+
 | 命令 | 用途 |
 |------|------|
 | `npm run doctor` | 检查本机 Node / Python / ffmpeg / 输出目录 / API key / cloud-bridge 状态 |

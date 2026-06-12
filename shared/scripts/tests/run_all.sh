@@ -38,6 +38,9 @@ run_test "ASR model/alignment contract" bash "$SCRIPT_DIR/test_asr_model.sh"
 # Punctuation density on fixture
 run_test "Punctuation density (fixture)" python3 "$SCRIPT_DIR/test_punctuation_density.py"
 
+# CLI status/validate smoke test
+run_test "CLI status/validate smoke" bash "$SCRIPT_DIR/test_cli_smoke.sh"
+
 echo "═══ SUMMARY ═══"
 echo "Passed: $PASS"
 echo "Failed: $FAIL"
