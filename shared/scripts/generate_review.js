@@ -171,9 +171,13 @@ if (S.length > 0 && S[0].s < 5) {
 }
 
 // ===== 构建 BLK 数组 =====
+// 精剪页：drop `suggest_delete` 类（粗剪阶段的 AI "可删可留" 提示）。
+// 用户在粗剪 commit 时已经做了取舍——接受的会进 deletedSet/RD，拒绝的是要保留。
+// 在精剪页继续展示这些 block 既冗余又会让用户以为还要处理它们一次。
 const BLK = [];
 if (analysis.blocks) {
   analysis.blocks.forEach(block => {
+    if (fineFile && block.type === 'suggest_delete') return;
     const startSent = S.find(s => s.idx === block.range[0]);
     const endSent = S.find(s => s.idx === block.range[1]);
     const dur = (startSent && endSent) ? Math.round(endSent.e - startSent.s) : 0;
