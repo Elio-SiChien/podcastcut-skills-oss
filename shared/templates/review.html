@@ -1273,7 +1273,25 @@ function skipIfNeeded(){
       // 6d 落点：默认 = e；只有 nextKept 紧邻(<0.5s)才用它（避免跳过整句，陷阱 5）
       let seekTarget=e;
       const nextKept=S.find(x=>!del.has(x.idx) && x.s>=e-0.1);
-      if(nextKept && nextKept.s<=e+0.5) seekTarget=nextKept.s;
+      if(nextKept && nextKept.s<=e+0.5){
+        // 陷阱 42 (2026-06-12 EP23 idx 216 '很通俗易懂'): nextKept 是按 sentence
+        // 找的，但 delete 落点和下一句之间可能还有 SAME-sentence 的 kept 词（典型
+        // case: 句中 self_correction_rules 删了第一次说的，后面跟着重说的；或者
+        // 句中 stutter 删了 '呃'，后面跟着实质内容词）。snap 到下一句开头会把
+        // 这些词整段跳过。fix: snap 前 verify [e, nextKept.s] 之间无 speech word。
+        let hasInterveningWord=false;
+        for(const sent of S){
+          if(del.has(sent.idx))continue;
+          if(!sent.w)continue;
+          for(const w of sent.w){
+            if(w.s>=e && w.e<=nextKept.s+0.01 && w.s<nextKept.s-0.01){
+              hasInterveningWord=true;break;
+            }
+          }
+          if(hasInterveningWord)break;
+        }
+        if(!hasInterveningWord) seekTarget=nextKept.s;
+      }
       // 落点又落进另一个 skip range，跳过它
       for(const r2 of ranges){
         if(seekTarget>=r2[0] && seekTarget<r2[1]) seekTarget=r2[1];
