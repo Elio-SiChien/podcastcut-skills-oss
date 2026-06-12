@@ -449,7 +449,7 @@ audio#au { display: none; }
 
     <section class="block" id="sec-quotes">
       <h2>金句选择 <span class="ord">01</span></h2>
-      <p class="desc">选 3–6 段最有记忆点的话用做片头预览。AI 预选了 3 段作起点；点击句子选中，点时间试听，先点一句再 Shift 点另一句可合并为一整段。</p>
+      <p class="desc">选 3–6 段最有记忆点的话用做片头预览。AI 已经默认选好了 <span id="ai-quote-count">__SUGGESTED_COUNT__</span> 段（理由在控制台 log 里）——不喜欢的点 ✕ 取消即可；想加新句子点 ☆，先点一句再 Shift 点另一句可合并为一整段。</p>
 
       <div class="quote-selected">
         <div class="quote-selected-hdr">
@@ -557,9 +557,18 @@ audio#au { display: none; }
       <div class="preview-bar">
         <button class="preview-btn" id="btn-preview-intro">▶ 试听片头</button>
         <button class="preview-btn" id="btn-preview-outro">▶ 试听片尾</button>
-        <span class="preview-hint" id="preview-hint">上传音乐后点试听 — 会按上面参数生成 ~10 秒预览。</span>
+        <span class="preview-hint" id="preview-hint">上传音乐后点试听 — 会按上面参数 + 金句 + 正文头/尾拼一段 ~45s 预览。</span>
       </div>
-      <audio id="preview-audio" controls style="width:100%; margin-top: 16px; display:none"></audio>
+      <div style="display:flex; gap: 12px; margin-top: 16px;">
+        <div style="flex:1">
+          <div class="preview-hint" id="preview-label-intro" style="display:none; margin-bottom:4px;">片头试听</div>
+          <audio id="preview-audio-intro" controls style="width:100%; display:none"></audio>
+        </div>
+        <div style="flex:1">
+          <div class="preview-hint" id="preview-label-outro" style="display:none; margin-bottom:4px;">片尾试听</div>
+          <audio id="preview-audio-outro" controls style="width:100%; display:none"></audio>
+        </div>
+      </div>
     </section>
   </main>
 </div>
@@ -575,7 +584,10 @@ audio#au { display: none; }
 <script>
 // ============== bake-in data ==============
 const SENTENCES = __SENTENCES_DATA__;
+// SUGGESTED 现在是分组 array：[[160], [443], [560, 561, 562]]
+// 单句 group 用 [N] 表示，多句合并 [N, N+1, ...]（相邻才允许）
 const SUGGESTED = __SUGGESTED_DATA__;
+const SUGGESTED_FLAT = new Set(SUGGESTED.flat());
 const CB = window.__CLOUD_BRIDGE__ || null;
 const SESSION = CB && CB.session ? CB.session : null;
 
@@ -697,6 +709,43 @@ function jumpAndPlay(t) {
   au.currentTime = t;
   au.play().catch(()=>{});
 }
+// seek 但不 autoplay — 用于 row 整行 click + time 列 click（操作员 2026-06-12 反馈
+// "点击句子的时候没有跳转到对应的时间戳试听（不要autoplay）"）。
+function jumpTo(t) {
+  if (!au) return;
+  au.currentTime = t;
+}
+// 试听单段金句：从 start 播到 end 就 pause，不会一直播下去。
+// 操作员 2026-06-12 反馈"点击金句之后就一直播下去，我想要只播金句那一部分就停止"。
+let _quoteStopTimer = null;
+let _quoteStopHandler = null;
+function playRange(start, end) {
+  if (!au) return;
+  // 清掉前一个监听（如果还在等）
+  if (_quoteStopHandler) {
+    au.removeEventListener('timeupdate', _quoteStopHandler);
+    _quoteStopHandler = null;
+  }
+  if (_quoteStopTimer) { clearTimeout(_quoteStopTimer); _quoteStopTimer = null; }
+  au.currentTime = start;
+  au.play().catch(()=>{});
+  // timeupdate 间隔 ~250ms 抖动，加 +50ms 容差避免在 end 边界 race。
+  // 用户在播放过程中再 seek 走，handler 检测到 currentTime 已经离开 [start, end] 区间
+  // 也立刻 detach，不再 force-pause。
+  _quoteStopHandler = () => {
+    const t = au.currentTime;
+    if (t >= end - 0.05) {
+      au.pause();
+      au.removeEventListener('timeupdate', _quoteStopHandler);
+      _quoteStopHandler = null;
+    } else if (t < start - 0.5) {
+      // 用户手动 seek 到 quote 之前 → 不再监听
+      au.removeEventListener('timeupdate', _quoteStopHandler);
+      _quoteStopHandler = null;
+    }
+  };
+  au.addEventListener('timeupdate', _quoteStopHandler);
+}
 
 // ============== Section 1: Quotes ==============
 function renderSelected() {
@@ -747,7 +796,7 @@ function renderSelected() {
     const text = document.createElement('div'); text.className = 'qsel-text';
     const spanTag = group.ids.length > 1 ? ` · ${group.ids.length} 句合并` : '';
     text.innerHTML = `<span class="spk">${q.speaker || ''}${spanTag}</span>${escapeHtml(q.text)}`;
-    text.onclick = () => jumpAndPlay(q.start);
+    text.onclick = () => playRange(q.start, q.end);  // play 完 quote 自动停
     const x = document.createElement('button'); x.className = 'qsel-x'; x.textContent = '取消';
     x.onclick = (e) => { e.stopPropagation(); removeQuoteGroup(group); save(); renderAll(); };
     row.appendChild(star); row.appendChild(time); row.appendChild(text); row.appendChild(x);
@@ -764,16 +813,17 @@ function renderQuoteList() {
     row.className = 'qrow';
     row.title = '点击选中；Shift 点击可和上一句合并为一段；点时间试听';
     if (selected.has(s.idx)) row.classList.add('sel');
-    if (SUGGESTED.includes(s.idx)) row.classList.add('sug');
+    if (SUGGESTED_FLAT.has(s.idx)) row.classList.add('sug');
     const star = document.createElement('div'); star.className = 'col-star';
     const time = document.createElement('div'); time.className = 'col-time'; time.textContent = fmtTime(s.start);
-    time.title = '试听这一句';
-    time.onclick = (e) => { e.stopPropagation(); jumpAndPlay(s.start); };
+    time.title = '跳到这一句的时间戳（不自动播放）';
+    time.onclick = (e) => { e.stopPropagation(); jumpTo(s.start); };
     const spk = document.createElement('div'); spk.className = 'col-spk'; spk.textContent = s.speaker || '';
     const text = document.createElement('div'); text.className = 'col-text';
-    text.innerHTML = escapeHtml(s.text) + (SUGGESTED.includes(s.idx) && !selected.has(s.idx) ? '<span class="col-suggest">AI 建议</span>' : '');
+    text.innerHTML = escapeHtml(s.text) + (SUGGESTED_FLAT.has(s.idx) && !selected.has(s.idx) ? '<span class="col-suggest">AI 建议</span>' : '');
     row.appendChild(star); row.appendChild(time); row.appendChild(spk); row.appendChild(text);
     row.addEventListener('click', (e) => {
+      jumpTo(s.start);              // 跳到时间戳但不 autoplay (用户可以再按 ▶ 试听)
       toggleQuote(s.idx, e);
       save();
       renderAll();
@@ -977,32 +1027,54 @@ function audioBufferToWavBlob(buf) {
   return new Blob([ab], { type: 'audio/wav' });
 }
 
+// 新版"试听片头/片尾"：server-side ffmpeg + mix_highlights_with_music.py
+// 拼"音乐 + 金句 mix + 正文头/尾"完整片段（~45s），返回独立 audio 元素。
+// 老的 browser-side generatePreview 路径（只拼音乐 + 渐入渐出，无金句、无正文）
+// 已退到 fallback 不再走。
 async function previewSlot(slot) {
   const btn = document.getElementById('btn-preview-' + slot);
-  const previewAudio = document.getElementById('preview-audio');
+  const previewAudio = document.getElementById('preview-audio-' + slot);
+  const labelEl = document.getElementById('preview-label-' + slot);
+  if (!SESSION) {
+    alert('当前页没有 cloud-bridge session，无法 server-side 拼片头/片尾');
+    return;
+  }
   const oldText = btn.textContent;
-  btn.disabled = true; btn.textContent = '生成中…';
+  btn.disabled = true;
+  btn.textContent = '⏳ 拼接中… (10-30s)';
+  setStatus(`${slot === 'intro' ? '片头' : '片尾'} trailer 生成中…`);
   try {
-    const blob = await generatePreview(slot);
-    previewAudio.src = URL.createObjectURL(blob);
+    if (typeof postState === 'function') await postState(false).catch(()=>{});
+    const r = await fetch(`/api/${SESSION}/preview-trailer?slot=${slot}`, { method: 'POST' });
+    let j;
+    try { j = await r.json(); } catch { j = null; }
+    if (!r.ok) throw new Error(j && j.error ? j.error : `HTTP ${r.status}`);
+    if (!j || !j.ok) throw new Error('server 返回失败');
+    if (labelEl) labelEl.style.display = '';
+    previewAudio.src = `/api/${SESSION}/trailer?slot=${slot}&t=${Date.now()}`;
     previewAudio.style.display = 'block';
     previewAudio.play().catch(()=>{});
+    setStatus(`✓ ${slot === 'intro' ? '片头' : '片尾'} trailer 已生成`, 'ok');
   } catch (e) {
-    alert(e.message || String(e));
+    setStatus(`✗ ${slot} trailer 失败: ` + (e.message || e), 'warn');
+    alert(`${slot === 'intro' ? '片头' : '片尾'} trailer 生成失败：` + (e.message || e));
   } finally {
-    btn.disabled = false; btn.textContent = oldText;
+    btn.disabled = false;
+    btn.textContent = oldText;
   }
 }
 
 function updatePreviewButtonsState() {
   const introBtn = document.getElementById('btn-preview-intro');
   const outroBtn = document.getElementById('btn-preview-outro');
-  if (introBtn) introBtn.disabled = !uploadedFiles.intro;
+  // intro trailer 需要 intro music + ≥1 段金句；outro trailer 只需要 outro music。
+  if (introBtn) introBtn.disabled = !uploadedFiles.intro || state.quotes.length === 0;
   if (outroBtn) outroBtn.disabled = !uploadedFiles.outro;
   const hint = document.getElementById('preview-hint');
   if (hint) {
-    if (!uploadedFiles.intro && !uploadedFiles.outro) hint.textContent = '上传音乐后点试听 — 会按上面参数生成 ~10 秒预览。';
-    else hint.textContent = '试听只用片头/片尾音乐 + 渐入渐出（金句 mix 在 agent 那边做）。';
+    if (!uploadedFiles.intro && !uploadedFiles.outro) hint.textContent = '上传音乐后点试听 — 会按上面参数 + 金句 + 正文头/尾拼一段 ~45s 预览。';
+    else if (introBtn && introBtn.disabled && uploadedFiles.intro) hint.textContent = '片头需要 ☆ 几段金句才能拼；片尾上传 outro music 后就可以点。';
+    else hint.textContent = '点 "试听片头/片尾" → 后台 ffmpeg 把音乐 + 金句 mix（片头）/ 正文段 + 音乐 渐入渐出（片尾）拼成 ~45s 预览（10-30s 生成）。';
   }
 }
 
@@ -1111,7 +1183,7 @@ const SLIDER_KEYS = ['intro_dur','intro_fin','intro_fout','outro_dur','outro_fin
 
 function save() {
   try {
-    const snap = { quotes: state.quotes.map(g => g.ids.slice()) };
+    const snap = { quotes: state.quotes.map(g => g.ids.slice()), suggestedSig: SUGGESTED_SIG };
     for (const k of SLIDER_KEYS) snap[k] = state[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) snap[k] = state[k];
     localStorage.setItem(SK, JSON.stringify(snap));
@@ -1128,10 +1200,18 @@ function applySliderStateToDOM() {
   }
 }
 
+// SUGGESTED fingerprint —— 当 AI picks 改了（regenerate / 新一次 LLM），把 stale
+// localStorage 视为失效。否则上次留下的 quotes:[] 会把新的预选盖掉。
+const SUGGESTED_SIG = SUGGESTED.map(g => g.join('+')).join(',');
 function restoreLocal() {
   try {
     const raw = localStorage.getItem(SK); if (!raw) return;
     const s = JSON.parse(raw);
+    // SUGGESTED 变了 OR legacy cache 没 sig → 视为过期，让 initSuggested 的预选生效。
+    // (Legacy 是 PR #103 之前写的 localStorage，里面 quotes:[] 是 30s autosave 的回声不是用户决定。)
+    if (s.suggestedSig !== SUGGESTED_SIG) {
+      return;
+    }
     if (Array.isArray(s.quotes)) state.quotes = normalizeQuoteGroups(s.quotes);
     for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
@@ -1149,6 +1229,7 @@ function buildPayload() {
     quotes: sortQuoteGroups(state.quotes).map(quotePayload).filter(Boolean),
     intro_uploaded: state.intro_uploaded, intro_filename: state.intro_filename,
     outro_uploaded: state.outro_uploaded, outro_filename: state.outro_filename,
+    suggestedSig: SUGGESTED_SIG,  // server records which AI picks set this draft was based on
     timestamp: Date.now(),
   };
   for (const k of SLIDER_KEYS) payload[k] = state[k];
@@ -1195,6 +1276,13 @@ async function loadFromServer() {
     const r = await fetch(`/api/${SESSION}/state`); if (!r.ok) return;
     const s = await r.json();
     if (s.initial) { setStatus('新 session · 开始编辑'); return; }
+    // Same defense as restoreLocal: server state 跟当前 SUGGESTED sig 不匹配
+    // OR legacy 没 sig → 视为过期，让 initSuggested 的预选生效。
+    // committed=true 时还是要尊重——那是用户已经显式提交过的版本。
+    if (!s.committed && s.suggestedSig !== SUGGESTED_SIG) {
+      setStatus('AI 选句已更新 · 旧草稿忽略');
+      return;
+    }
     if (Array.isArray(s.quotes)) state.quotes = normalizeQuoteGroups(s.quotes);
     for (const k of SLIDER_KEYS) if (s[k] != null) state[k] = s[k];
     for (const k of ['intro_uploaded','intro_filename','outro_uploaded','outro_filename']) {
@@ -1237,7 +1325,7 @@ function renderAll() {
 }
 function initSuggested() {
   state.quotes = [];
-  for (const i of SUGGESTED) addQuoteGroup([i]);
+  for (const g of SUGGESTED) addQuoteGroup(g);  // g 已是数组（单句也是 [N]）
 }
 
 (async function init(){

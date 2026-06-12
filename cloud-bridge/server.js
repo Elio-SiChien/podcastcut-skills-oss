@@ -239,6 +239,229 @@ function handleMasteringPage(s, res) {
   });
 }
 
+// ──────────── /api/:session/preview-trailer?slot=intro|outro (POST) ─────
+// 用户在 mastering 页点 "▶ 试听片头拼接" / "▶ 试听片尾拼接" → 后台用 ffmpeg +
+// mix_highlights_with_music.py 拼一份 ~45-60s 的预览，落到 sessions/<s>/trailer_<slot>.mp3。
+//
+// intro slot 流程：
+//   1) 把 intro music + 金句 highlights 通过 mix_highlights_with_music.py 出一份 wav
+//   2) 取 v3 audio 开头 15s 作为正文片段（fade-in 1.5s）
+//   3) ffmpeg crossfade 拼 [1] → [2]，输出 trailer_intro.mp3
+//
+// outro slot 流程：
+//   1) 取 v3 audio 结尾 15s 作为正文片段
+//   2) 截 outro music 前 outro_dur 秒，fade-in/out
+//   3) ffmpeg crossfade 拼 [1] → [2]，输出 trailer_outro.mp3
+//
+// 同步 GET /api/:s/trailer?slot=intro|outro 把对应文件 stream 出去。
+function handleMasteringPreviewTrailer(s, req, res, slot) {
+  if (slot !== 'intro' && slot !== 'outro') return sendErr(res, 400, 'slot must be intro or outro');
+  if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
+  const meta = readMeta(s);
+  if (!meta || meta.kind !== 'mastering') return sendErr(res, 400, 'not a mastering session');
+  const slotMeta = meta.slots && meta.slots[slot];
+  if (!slotMeta || !slotMeta.path) {
+    return sendErr(res, 412, `先上传${slot === 'intro' ? '片头' : '片尾'}音乐 (slot=${slot})`);
+  }
+  if (!fs.existsSync(slotMeta.path)) {
+    return sendErr(res, 422, `${slot} music file 丢了：${slotMeta.path}`);
+  }
+  if (!meta.audio_path || !fs.existsSync(meta.audio_path)) {
+    return sendErr(res, 422, 'audio_path 不存在或丢了');
+  }
+  const draftPath = path.join(SESSIONS_DIR, s, 'state.draft.json');
+  const committedPath = path.join(SESSIONS_DIR, s, 'state.committed.json');
+  let st = null;
+  try {
+    if (fs.existsSync(draftPath)) st = JSON.parse(fs.readFileSync(draftPath, 'utf8'));
+    else if (fs.existsSync(committedPath)) st = JSON.parse(fs.readFileSync(committedPath, 'utf8'));
+  } catch (e) {
+    return sendErr(res, 500, 'state parse error: ' + e.message);
+  }
+  if (!st) return sendErr(res, 409, '页面还没存过状态（点 "保存进度" 后再试）');
+  const quotes = Array.isArray(st.quotes) ? st.quotes.filter(q => q && Number.isFinite(q.start) && Number.isFinite(q.end) && q.end > q.start) : [];
+  if (slot === 'intro' && quotes.length === 0) return sendErr(res, 412, '没选金句 — 至少 ☆ 一段再 trailer');
+
+  // 防并发：guard via tmp file per slot
+  const inProgressFlag = path.join(SESSIONS_DIR, s, `.trailer_${slot}_in_progress`);
+  if (fs.existsSync(inProgressFlag)) {
+    const age = Date.now() - fs.statSync(inProgressFlag).mtimeMs;
+    if (age < 5 * 60 * 1000) return sendErr(res, 429, `上一个 ${slot} trailer 还在生成`);
+    try { fs.unlinkSync(inProgressFlag); } catch {}
+  }
+  fs.writeFileSync(inProgressFlag, String(Date.now()));
+
+  const sessionDir = path.join(SESSIONS_DIR, s);
+  const trailerOut = path.join(sessionDir, `trailer_${slot}.mp3`);
+  const tmpDir = path.join(sessionDir, `trailer_${slot}_tmp`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  // params from state (defaults match mastering.html slider initial values)
+  const introDur = Number(st.intro_dur ?? 15);   // 片头纯音乐时长
+  const gapDur = Number(st.hl_gap ?? 3);          // 金句间过渡
+  const hlBgDb = Number(st.hl_bg_db ?? -22);     // 人声时背景音量 (dB)
+  const musicVol = Math.max(0.01, Math.min(1, Math.pow(10, hlBgDb / 20)));
+
+  // 共用：定位 mix_highlights_with_music.py
+  const mixScriptCandidates = [
+    path.resolve(__dirname, '..', '后期', 'scripts', 'mix_highlights_with_music.py'),
+    path.resolve(__dirname, '..', 'shared', 'scripts', 'mix_highlights_with_music.py'),
+  ];
+  const mixScript = mixScriptCandidates.find(p => fs.existsSync(p));
+
+  // ffmpeg helper — Promise wrap
+  function ff(args, label) {
+    return new Promise((resolve, reject) => {
+      const p = spawn('ffmpeg', ['-y', '-loglevel', 'error', ...args]);
+      let stderr = '';
+      p.stderr.on('data', d => stderr += d);
+      p.on('close', code => code === 0 ? resolve() : reject(new Error(`${label} ffmpeg code=${code}: ${stderr.slice(-300)}`)));
+      p.on('error', e => reject(new Error(`${label} ffmpeg spawn: ${e.message}`)));
+    });
+  }
+  function py(args, label) {
+    return new Promise((resolve, reject) => {
+      const p = spawn('python3', args);
+      let stderr = '';
+      p.stderr.on('data', d => stderr += d);
+      p.on('close', code => code === 0 ? resolve() : reject(new Error(`${label} python3 code=${code}: ${stderr.slice(-300)}`)));
+      p.on('error', e => reject(new Error(`${label} python3 spawn: ${e.message}`)));
+    });
+  }
+  async function getDur(p) {
+    return new Promise((resolve, reject) => {
+      const pr = spawn('ffprobe', ['-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1', p]);
+      let out = '';
+      pr.stdout.on('data', d => out += d);
+      pr.on('close', code => code === 0 ? resolve(parseFloat(out.trim())) : reject(new Error('ffprobe failed')));
+    });
+  }
+
+  async function buildIntro() {
+    if (!mixScript) throw new Error('mix_highlights_with_music.py 找不到');
+    // 1) extract quote clips
+    const clipPaths = [];
+    for (let i = 0; i < quotes.length; i++) {
+      const q = quotes[i];
+      const dur = (q.end - q.start).toFixed(3);
+      const clipOut = path.join(tmpDir, `clip_${i + 1}.wav`);
+      await ff(['-ss', String(q.start.toFixed(3)), '-i', meta.audio_path, '-t', dur, '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2', clipOut], `clip ${i+1}`);
+      clipPaths.push(clipOut);
+    }
+    // 2) mix intro music + clips
+    const mixOutWav = path.join(tmpDir, 'mix.wav');
+    await py([
+      mixScript,
+      '--theme', meta.slots.intro.path,
+      '--clips', ...clipPaths,
+      '--output', mixOutWav,
+      '--intro-dur', String(introDur),
+      '--gap-dur', String(gapDur),
+      '--music-vol', String(musicVol.toFixed(3)),
+    ], 'mix');
+    // 3) extract 15s of episode start as body sample
+    const bodyOut = path.join(tmpDir, 'body_head.wav');
+    await ff(['-ss', '0', '-i', meta.audio_path, '-t', '15', '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2', bodyOut], 'body head');
+    // 4) crossfade mix → body
+    const mixDur = await getDur(mixOutWav);
+    const fadeDur = 1.5;
+    const finalWav = path.join(tmpDir, 'final.wav');
+    await ff([
+      '-i', mixOutWav, '-i', bodyOut,
+      '-filter_complex', `[0:a][1:a]acrossfade=d=${fadeDur}:c1=tri:c2=tri[a]`,
+      '-map', '[a]',
+      '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+      finalWav,
+    ], 'intro xfade');
+    // 5) wav → mp3
+    await ff(['-i', finalWav, '-c:a', 'libmp3lame', '-b:a', '192k', trailerOut], 'wav→mp3 intro');
+  }
+
+  async function buildOutro() {
+    // 1) extract last 15s of episode body
+    const epDur = await getDur(meta.audio_path);
+    const tailStart = Math.max(0, epDur - 15);
+    const bodyOut = path.join(tmpDir, 'body_tail.wav');
+    await ff(['-ss', String(tailStart.toFixed(3)), '-i', meta.audio_path, '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2', bodyOut], 'body tail');
+    // 2) take outro_dur seconds of outro music, fade-in fade-out
+    const outroDur = Math.max(3, Number(st.outro_dur ?? 15));
+    const outroFin = Math.max(0, Number(st.outro_fin ?? 5));
+    const outroFout = Math.max(0, Number(st.outro_fout ?? 3));
+    const musicCut = path.join(tmpDir, 'outro_music.wav');
+    await ff([
+      '-ss', '0', '-i', meta.slots.outro.path,
+      '-t', String(outroDur.toFixed(3)),
+      '-af', `afade=in:st=0:d=${outroFin},afade=out:st=${(outroDur - outroFout).toFixed(3)}:d=${outroFout}`,
+      '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+      musicCut,
+    ], 'outro music fade');
+    // 3) crossfade body → music
+    const fadeDur = 1.5;
+    const finalWav = path.join(tmpDir, 'final.wav');
+    await ff([
+      '-i', bodyOut, '-i', musicCut,
+      '-filter_complex', `[0:a][1:a]acrossfade=d=${fadeDur}:c1=tri:c2=tri[a]`,
+      '-map', '[a]',
+      '-c:a', 'pcm_s16le', '-ar', '44100', '-ac', '2',
+      finalWav,
+    ], 'outro xfade');
+    // 4) wav → mp3
+    await ff(['-i', finalWav, '-c:a', 'libmp3lame', '-b:a', '192k', trailerOut], 'wav→mp3 outro');
+  }
+
+  (async () => {
+    try {
+      if (slot === 'intro') await buildIntro();
+      else await buildOutro();
+      finish(true);
+    } catch (e) {
+      finish(false, e.message || String(e));
+    } finally {
+      // cleanup tmp dir
+      try {
+        const tmpFiles = fs.readdirSync(tmpDir);
+        for (const f of tmpFiles) { try { fs.unlinkSync(path.join(tmpDir, f)); } catch {} }
+        fs.rmdirSync(tmpDir);
+      } catch {}
+    }
+  })();
+
+  let done = false;
+  function finish(ok, errMsg) {
+    if (done) return; done = true;
+    try { fs.unlinkSync(inProgressFlag); } catch {}
+    const cur = readMeta(s) || meta;
+    cur.preview_trailer = cur.preview_trailer || {};
+    cur.preview_trailer[slot] = ok
+      ? { path: trailerOut, generated_at: Date.now() }
+      : { error: errMsg, failed_at: Date.now() };
+    writeMeta(s, cur);
+    console.log(`[${s}] preview-trailer[${slot}] ${ok ? 'DONE' : 'FAIL'} ${errMsg ? '(' + errMsg + ')' : ''}`);
+    if (!res.headersSent) {
+      send(res, ok ? 200 : 500, ok ? { ok: true, url: `/api/${s}/trailer?slot=${slot}` } : { ok: false, error: errMsg });
+    }
+  }
+}
+
+function handleMasteringTrailerServe(s, req, res, slot) {
+  if (slot !== 'intro' && slot !== 'outro') return sendErr(res, 400, 'slot must be intro or outro');
+  if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
+  const meta = readMeta(s);
+  if (!meta || meta.kind !== 'mastering') return sendErr(res, 400, 'not a mastering session');
+  const trailerPath = path.join(SESSIONS_DIR, s, `trailer_${slot}.mp3`);
+  if (!fs.existsSync(trailerPath)) return sendErr(res, 404, `trailer (${slot}) not generated yet`);
+  fs.stat(trailerPath, (err, stat) => {
+    if (err) return sendErr(res, 500, 'stat error');
+    res.writeHead(200, {
+      'content-type': 'audio/mpeg',
+      'content-length': stat.size,
+      'accept-ranges': 'bytes',
+      'cache-control': 'no-store',
+    });
+    fs.createReadStream(trailerPath).pipe(res);
+  });
+}
+
 function handleMasteringUpload(s, req, res, slot) {
   if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
   const meta = readMeta(s);
@@ -1148,7 +1371,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const m = parsed.pathname.match(
-    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|reopen|audio|upload|upload-chunk|mastering-save|mastering-commit|mastering-upload))$/
+    /^\/(?:r\/([a-z0-9]+)|u\/([a-z0-9]+)|m\/([a-z0-9]+)|api\/([a-z0-9]+)\/(state|save|commit|reopen|audio|upload|upload-chunk|mastering-save|mastering-commit|mastering-upload|preview-trailer|trailer))$/
   );
   if (!m) {
     if (parsed.pathname === '/health') return send(res, 200, { ok: true, sessions_dir: SESSIONS_DIR });
@@ -1174,6 +1397,14 @@ const server = http.createServer(async (req, res) => {
   if (action === 'mastering-upload' && req.method === 'POST') {
     const slot = (parsed.query && parsed.query.slot) || '';
     return handleMasteringUpload(apiSess, req, res, slot);
+  }
+  if (action === 'preview-trailer' && req.method === 'POST') {
+    const slot = (parsed.query && parsed.query.slot) || 'intro';
+    return handleMasteringPreviewTrailer(apiSess, req, res, slot);
+  }
+  if (action === 'trailer' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const slot = (parsed.query && parsed.query.slot) || 'intro';
+    return handleMasteringTrailerServe(apiSess, req, res, slot);
   }
   return sendErr(res, 405, 'method not allowed');
 });
