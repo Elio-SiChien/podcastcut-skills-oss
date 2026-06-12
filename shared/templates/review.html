@@ -115,6 +115,147 @@ body {
 .dur-meta { font-size: 15px; color: var(--mid); }
 .dur-meta strong { font-weight: 700; color: var(--gold); }
 
+/* 精剪模式（body.fine）：移除独立的时长块 + 删减概要 + 说话人（task #5）
+   时长 build 进 DJ 控制台顶部（Cheny iter 1：避免数据重复） */
+body.fine .dur-block,
+body.fine .summary-block,
+body.fine .sp-block { display: none; }
+
+/* ===== DJ 控制台（精剪 sidebar 中段，task #5）=====
+   设计：嵌在 sage 浅底里的暗色仪表面板，琥珀金描边 + 静态刻度环 + LED 数显。
+   仅精剪 (body.fine) 显示。 */
+.dj-console { display: none; }
+body.fine .dj-console { display: block; }
+
+.dj-frame {
+  background: linear-gradient(180deg, #1F1F1F 0%, #161616 100%);
+  border-radius: 12px;
+  padding: 14px 14px 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.06),
+    inset 0 -1px 0 rgba(0,0,0,.6),
+    0 6px 18px rgba(0,0,0,.18);
+  position: relative;
+}
+.dj-led {
+  position: absolute; top: 10px; right: 12px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #FF5A4F;
+  box-shadow: 0 0 6px rgba(255,90,79,.85), 0 0 14px rgba(255,90,79,.45), 0 0 22px rgba(255,90,79,.18);
+  animation: dj-led-pulse 2.6s ease-in-out infinite;
+  /* Cheny iter 1：右上角小红点（温和 2.6s 周期，避免高频闪烁，符合"温和" UX 反馈）*/
+}
+@keyframes dj-led-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .45; transform: scale(.9); }
+}
+.dj-screen {
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+/* 主数显：目前总时长（rc = roughcut − 精剪 净时长）+ 精剪 delta
+   Cheny iter 1: 从 sidebar 顶部 dur-block 搬过来
+   Cheny iter 2: 上方小字 "目前总时长"，去掉 POST ROUGHCUT */
+.dj-main-readout {
+  text-align: center;
+  padding: 6px 0 10px;
+  border-bottom: 1px dashed rgba(212,169,87,.25);
+}
+.dj-main-label-top {
+  font-size: 9px; letter-spacing: 3px;
+  color: rgba(212,169,87,.7); font-weight: 700;
+  margin-bottom: 4px;
+}
+.dj-main-time {
+  font-size: 32px; font-weight: 700;
+  color: #EFECE6;
+  letter-spacing: 1px;
+  line-height: 1.05;
+  text-shadow: 0 0 14px rgba(239,236,230,.18);
+  font-variant-numeric: tabular-nums;
+}
+
+.dj-status {
+  font-size: 10px; letter-spacing: 2px;
+  color: #D4A957; font-weight: 700;
+  text-align: center;
+  border-bottom: 1px dashed rgba(212,169,87,.25);
+  padding-bottom: 6px;
+}
+.dj-row { display: flex; align-items: center; gap: 14px; }
+.dj-dial-row { justify-content: space-between; padding: 4px 2px 6px; }
+
+.dj-dial {
+  position: relative;
+  width: 80px; height: 80px;
+  flex: 0 0 auto;
+}
+.dj-dial svg { width: 100%; height: 100%; display: block; }
+.dj-dial-bg { stroke: rgba(212,169,87,.18); }
+.dj-dial-fg {
+  stroke: #D4A957;
+  filter: drop-shadow(0 0 4px rgba(212,169,87,.45));
+  transition: stroke-dasharray .4s ease;
+}
+.dj-dial-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+.dj-dial-val {
+  font-size: 18px; font-weight: 700; color: #EFECE6;
+  line-height: 1;
+}
+.dj-dial-cap {
+  font-size: 8px; letter-spacing: 2px;
+  color: rgba(212,169,87,.7); margin-top: 4px;
+}
+.dj-readout {
+  text-align: right; flex: 1; min-width: 0;
+}
+.dj-readout-cap {
+  font-size: 9px; letter-spacing: 2px;
+  color: rgba(212,169,87,.7); margin-bottom: 4px;
+}
+.dj-readout-val {
+  font-size: 22px; font-weight: 700; color: #EFECE6;
+  letter-spacing: 1px; line-height: 1;
+}
+
+.dj-meter-row { flex-direction: column; gap: 10px; align-items: stretch; }
+.dj-meter {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-items: center;
+}
+.dj-meter-cap {
+  grid-column: 1;
+  font-size: 9px; letter-spacing: 1.8px;
+  color: rgba(212,169,87,.7);
+}
+.dj-meter-val {
+  grid-column: 2; grid-row: 1 / span 2;
+  font-size: 16px; font-weight: 700; color: #EFECE6;
+  align-self: center; text-align: right;
+  min-width: 28px;
+}
+.dj-meter-bar {
+  grid-column: 1; grid-row: 2;
+  height: 4px; background: rgba(212,169,87,.15);
+  border-radius: 2px; overflow: hidden;
+  position: relative;
+}
+.dj-meter-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #B8902F 0%, #D4A957 50%, #E6BD6A 100%);
+  border-radius: 2px;
+  transition: width .4s ease;
+  box-shadow: 0 0 6px rgba(212,169,87,.4);
+}
+
 /* Summary */
 .summary-text {
   font-size: 15px; line-height: 1.9; color: var(--mid);
@@ -470,8 +611,8 @@ body.fine .bulkbar { display: none !important; }
   font-size: 15px; color: var(--muted); min-width: 60px;
 }
 
-.p-track { flex:1; height: 4px; background: var(--dark); cursor:pointer; position:relative; border-radius:2px; }
-.p-fill { height:100%; background: #EFECE6; width:0%; transition:width .05s; border-radius:2px; position:relative; }
+.p-track { flex:1; height: 4px; background: var(--dark); cursor:pointer; position:relative; border-radius:2px; overflow:visible; }
+.p-fill { height:100%; background: #EFECE6; width:0%; max-width:100%; transition:width .05s; border-radius:2px; position:relative; }
 .p-leaf {
   position:absolute; right:-6px; top:-5px;
   width:14px; height:14px;
@@ -482,20 +623,57 @@ body.fine .bulkbar { display: none !important; }
 .p-track:active .p-fill { transition:none; }
 .p-track:active .p-leaf { transition:none; }
 
+/* Primary play/pause: round icon button — high visibility, no thin text */
 .p-btn {
-  background: transparent; color: var(--sage-light);
-  border: 1.5px solid var(--muted);
-  padding: 7px 24px; font-size: 12px; font-weight: 700;
-  letter-spacing: 2px; cursor: pointer; transition: all .12s;
+  background: var(--sage-light); color: #1A1A1A;
+  border: none;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: transform .08s ease, background .12s ease, box-shadow .12s ease;
+  box-shadow: 0 2px 10px rgba(0,0,0,.28);
+  flex: 0 0 auto;
 }
-.p-btn:hover { background: var(--sage-light); color: var(--black); border-color: var(--sage-light); }
+.p-btn:hover { background: #FFFFFF; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.36); }
+.p-btn:active { transform: translateY(0); box-shadow: 0 2px 6px rgba(0,0,0,.28); }
+.p-btn svg { width: 16px; height: 16px; display: block; fill: currentColor; }
+.p-btn[data-state="play"] .icon-pause { display:none; }
+.p-btn[data-state="pause"] .icon-play { display:none; }
 
+/* Speed: pop-up menu instead of cycle button */
+.p-spd-wrap { position: relative; flex: 0 0 auto; }
 .p-spd {
   font-family: "SF Mono", monospace;
-  font-size: 12px; color: var(--muted); background: none;
-  border: none; cursor: pointer; letter-spacing: 1px;
+  font-size: 13px; font-weight: 700; color: var(--sage-light);
+  background: transparent;
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  padding: 6px 10px 6px 12px;
+  letter-spacing: .5px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color .12s, color .12s, background .12s;
 }
-.p-spd:hover { color: var(--sage-light); }
+.p-spd:hover { color: #FFFFFF; border-color: var(--sage-light); }
+.p-spd .caret { width: 8px; height: 8px; opacity: .7; }
+.p-spd-menu {
+  position: absolute; right: 0; bottom: calc(100% + 8px);
+  background: #1A1A1A; border: 1px solid var(--muted);
+  border-radius: 8px; box-shadow: 0 -8px 28px rgba(0,0,0,.42);
+  padding: 4px; min-width: 88px;
+  display: none; flex-direction: column;
+}
+.p-spd-wrap.open .p-spd-menu { display: flex; }
+.p-spd-wrap.open .p-spd { border-color: var(--sage-light); color: #FFFFFF; }
+.p-spd-opt {
+  font-family: "SF Mono", monospace;
+  font-size: 13px; color: var(--sage-light);
+  background: transparent; border: none; cursor: pointer;
+  padding: 7px 12px; border-radius: 5px;
+  text-align: left; letter-spacing: .5px;
+  transition: background .1s;
+}
+.p-spd-opt:hover { background: rgba(239,236,230,.10); }
+.p-spd-opt.active { color: #1A1A1A; background: var(--sage-light); font-weight: 700; }
 
 /* Info icon */
 .info-icon {
@@ -616,22 +794,76 @@ body.fine .bulkbar { display: none !important; }
 <div class="layout">
 <aside class="sidebar">
 
+  <!-- 时长块。粗剪：原 → 当前 + 删减了 X。精剪 (body.fine) 下整块隐藏，时长 build 进 DJ 控制台 -->
   <div class="dur-block">
     <div class="section-label">时长</div>
-    <div class="dur-main">
+    <div class="dur-main dur-main-rough">
       <span class="dur-from serif" id="d-from">0:00</span>
       <span class="dur-arrow">→</span>
       <span class="dur-to serif" id="d-to">0:00</span>
     </div>
-    <div class="dur-meta">删减了 <strong id="d-rm">0:00</strong></div>
+    <div class="dur-meta dur-meta-rough">删减了 <strong id="d-rm">0:00</strong></div>
   </div>
 
-  <div>
+  <!-- DJ 控制台：仅精剪 (body.fine) 显示。包含粗剪后总时长 + 4 仪表。task #5 + Cheny iteration 1 -->
+  <div class="dj-console" aria-label="精剪参数控制台">
+    <div class="dj-frame">
+      <div class="dj-led" aria-hidden="true"></div>
+      <div class="dj-screen">
+        <!-- ⓪ 主数显：目前总时长（rc = roughcut - 精剪 净时长）
+             Cheny iter 1：从旧 dur-block 搬进 DJ console
+             Cheny iter 2：上方小字 "目前总时长"，去掉 POST ROUGHCUT
+             Cheny iter 3：去掉"精剪节省"delta，让主数显更干净 -->
+        <div class="dj-main-readout">
+          <div class="dj-main-label-top mono">目前总时长</div>
+          <div class="dj-main-time mono" id="dj-main-time">0:00</div>
+        </div>
+
+        <div class="dj-status mono">FINE&nbsp;CUT&nbsp;·&nbsp;LIVE</div>
+
+        <!-- ① 压缩率 dial + ④ 节省时长 readout -->
+        <div class="dj-row dj-dial-row">
+          <div class="dj-dial" id="dj-dial">
+            <svg viewBox="0 0 80 80" aria-hidden="true">
+              <circle class="dj-dial-bg" cx="40" cy="40" r="34" fill="none" stroke-width="6"/>
+              <circle class="dj-dial-fg" cx="40" cy="40" r="34" fill="none" stroke-width="6"
+                stroke-linecap="round" pathLength="100"
+                stroke-dasharray="0 100" transform="rotate(-90 40 40)"/>
+            </svg>
+            <div class="dj-dial-center">
+              <span class="dj-dial-val mono" id="dj-ratio">0%</span>
+              <span class="dj-dial-cap mono">RATIO</span>
+            </div>
+          </div>
+          <div class="dj-readout">
+            <div class="dj-readout-cap mono">SAVED</div>
+            <div class="dj-readout-val mono" id="dj-saved">0:00</div>
+          </div>
+        </div>
+
+        <!-- ② / ③ LED-style 数显 -->
+        <div class="dj-row dj-meter-row">
+          <div class="dj-meter">
+            <div class="dj-meter-cap mono">FILLERS</div>
+            <div class="dj-meter-bar"><div class="dj-meter-fill" id="dj-filler-fill"></div></div>
+            <div class="dj-meter-val mono" id="dj-filler-n">0</div>
+          </div>
+          <div class="dj-meter">
+            <div class="dj-meter-cap mono">SILENCE&nbsp;TIGHTEN</div>
+            <div class="dj-meter-bar"><div class="dj-meter-fill" id="dj-silence-fill"></div></div>
+            <div class="dj-meter-val mono" id="dj-silence-n">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary-block">
     <div class="section-label">删减概要</div>
     <div class="summary-text" id="summ"></div>
   </div>
 
-  <div>
+  <div class="sp-block">
     <div class="section-label">说话人</div>
     <div class="sp-legend" id="spleg"></div>
   </div>
@@ -666,8 +898,17 @@ body.fine .bulkbar { display: none !important; }
   <span class="p-time mono" id="ptm">0:00</span>
   <div class="p-track" id="ptrk" onmousedown="startDrag(event)"><div class="p-fill" id="pfill"><span class="p-leaf"></span></div></div>
   <span class="p-total mono" id="pdur">0:00</span>
-  <button class="p-btn" id="pbtn" onclick="tgPlay()">播放</button>
-  <button class="p-spd" id="pspd" onclick="cySpd()">1.0×</button>
+  <button class="p-btn" id="pbtn" data-state="play" onclick="tgPlay()" aria-label="播放/暂停">
+    <svg class="icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.8 L13 8 L3 14.2 Z"/></svg>
+    <svg class="icon-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="2" width="3.6" height="12" rx="1"/><rect x="9.4" y="2" width="3.6" height="12" rx="1"/></svg>
+  </button>
+  <div class="p-spd-wrap" id="pspd-wrap">
+    <button class="p-spd" id="pspd" onclick="toggleSpdMenu(event)" aria-haspopup="menu" aria-expanded="false">
+      <span id="pspd-label">1.0×</span>
+      <svg class="caret" viewBox="0 0 10 6" aria-hidden="true"><path d="M1 1 L5 5 L9 1" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div class="p-spd-menu" id="pspd-menu" role="menu"></div>
+  </div>
 </div>
 
 
@@ -815,6 +1056,51 @@ function renderSidebar() {
   document.getElementById('d-from').textContent=fm(td);
   document.getElementById('d-to').textContent=fm(rc);
   document.getElementById('d-rm').textContent=fm(rd);
+
+  // === 精剪模式：B-style 时长 + DJ 控制台 4 仪表 (task #5) ===
+  // body.fine 下 .dur-main-rough/.dur-meta-rough 被 CSS 隐藏，.dur-main-fine/.dur-meta-fine 激活。
+  // 1. 大字 = 粗剪后总时长（= td - sentence_deletes 时间）
+  // 2. delta = 精剪在此基础上再砍多少（命名 fineSaved；存在 #107 overlap 双算偏小风险）
+  // 3. DJ 4 仪表：压缩率 dial / 节省时长 readout / 口癖密度 meter / 静音收紧 meter
+  if (document.body.classList.contains('fine')) {
+    // 粗剪后时长 = td - 整句删除时间和
+    let roughRd = 0;
+    S.forEach(x => { if (del.has(x.idx)) roughRd += x.e - x.s; });
+    const roughDur = Math.max(0, td - roughRd);
+    const fineSaved = Math.max(0, roughDur - rc);
+
+    // 主数显 (DJ console top)：目前总时长 (= rc, 含精剪净效)
+    // Cheny iter 2: "目前总时长"标签 → 大字显 rc
+    // Cheny iter 3: 去掉"精剪节省"delta
+    document.getElementById('dj-main-time').textContent = fm(rc);
+
+    // 4 仪表数据
+    let fillerCount = 0, silenceCount = 0;
+    FE.forEach(f => {
+      if (fdis.has(`${f.idx}@${f.ord}`)) return;
+      if (del.has(f.idx)) return;
+      const t = f.type || '';
+      if (t === 'filler_start' || t === 'stutter') fillerCount++;
+      else if (t === 'silence' || t === 'silence_merged') silenceCount++;
+    });
+
+    // ① 压缩率 dial（基于粗剪后时长，限 0-100 防 #107 overlap 偏移导致 >100%）
+    const rawRatio = roughDur > 0 ? fineSaved / roughDur * 100 : 0;
+    const ratioPct = Math.min(100, Math.max(0, rawRatio));
+    document.getElementById('dj-ratio').textContent = ratioPct.toFixed(1) + '%';
+    const dialFg = document.querySelector('.dj-dial-fg');
+    if (dialFg) dialFg.setAttribute('stroke-dasharray', `${ratioPct} 100`);
+
+    // ④ 节省时长 readout
+    document.getElementById('dj-saved').textContent = fm(fineSaved);
+
+    // ② ③ 口癖 / 静音收紧 计数 + 相对长度条
+    document.getElementById('dj-filler-n').textContent = fillerCount;
+    document.getElementById('dj-silence-n').textContent = silenceCount;
+    const maxFE = Math.max(fillerCount, silenceCount, 1);
+    document.getElementById('dj-filler-fill').style.width = (fillerCount / maxFE * 100) + '%';
+    document.getElementById('dj-silence-fill').style.width = (silenceCount / maxFE * 100) + '%';
+  }
 
   // Summary
   const fill=['pre_show','tech_debug','production_talk','chit_chat'];
@@ -1497,7 +1783,8 @@ function originalToVirtual(origTime) {
 
 // ===== AUDIO =====
 const au=document.getElementById('au');let pl=false;
-const spds=[1,1.25,1.5,1.75,2,.75];let si=0;
+// Speed选项升序展示；选中态由 au.playbackRate 反映
+const SPD_OPTS=[0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 function tgPlay(){pl?au.pause():au.play()}
 function sk(t){au.currentTime=t}
 let dragging=false;
@@ -1510,10 +1797,44 @@ function startDrag(e){
   document.addEventListener('mouseup',onUp);
 }
 function seekFromPos(e){const rc=document.getElementById('ptrk').getBoundingClientRect();const pct=Math.max(0,Math.min(1,(e.clientX-rc.left)/rc.width));if(au.duration){au.currentTime=pct*au.duration;document.getElementById('pfill').style.width=(pct*100)+'%'}}
-function cySpd(){si=(si+1)%spds.length;au.playbackRate=spds[si];document.getElementById('pspd').textContent=spds[si]+'×'}
 
-au.addEventListener('play',()=>{pl=true;document.getElementById('pbtn').textContent='暂停';scheduleNextSkip();});
-au.addEventListener('pause',()=>{pl=false;document.getElementById('pbtn').textContent='播放';if(_skipScheduled){clearTimeout(_skipScheduled);_skipScheduled=null;}});
+// 速度上拉菜单：取代旧的 cycle 按钮
+function fmtSpd(r){return r.toFixed(2).replace(/\.?0+$/,'')+'×';}
+function renderSpdMenu(){
+  const menu=document.getElementById('pspd-menu');
+  const cur=au.playbackRate||1;
+  menu.innerHTML=SPD_OPTS.map(r=>{
+    const active=Math.abs(r-cur)<1e-3?' active':'';
+    return `<button class="p-spd-opt${active}" role="menuitem" data-rate="${r}" onclick="pickSpd(${r})">${fmtSpd(r)}</button>`;
+  }).join('');
+  document.getElementById('pspd-label').textContent=fmtSpd(cur);
+}
+function toggleSpdMenu(e){
+  e.stopPropagation();
+  const wrap=document.getElementById('pspd-wrap');
+  const opening=!wrap.classList.contains('open');
+  wrap.classList.toggle('open');
+  document.getElementById('pspd').setAttribute('aria-expanded', opening?'true':'false');
+  if(opening) renderSpdMenu();
+}
+function pickSpd(r){
+  au.playbackRate=r;
+  document.getElementById('pspd-label').textContent=fmtSpd(r);
+  document.getElementById('pspd-wrap').classList.remove('open');
+  document.getElementById('pspd').setAttribute('aria-expanded','false');
+  renderSpdMenu();
+}
+document.addEventListener('click',(ev)=>{
+  const wrap=document.getElementById('pspd-wrap');
+  if(wrap && wrap.classList.contains('open') && !wrap.contains(ev.target)){
+    wrap.classList.remove('open');
+    document.getElementById('pspd').setAttribute('aria-expanded','false');
+  }
+});
+renderSpdMenu();
+
+au.addEventListener('play',()=>{pl=true;document.getElementById('pbtn').setAttribute('data-state','pause');scheduleNextSkip();});
+au.addEventListener('pause',()=>{pl=false;document.getElementById('pbtn').setAttribute('data-state','play');if(_skipScheduled){clearTimeout(_skipScheduled);_skipScheduled=null;}});
 au.addEventListener('loadedmetadata',()=>{ updatePlayerDuration(); });
 
 function updatePlayerDuration() {
@@ -1531,15 +1852,17 @@ au.addEventListener('timeupdate',()=>{
   const t=au.currentTime,d=au.duration||0;
 
   // Show virtual time in preview mode, original time in edit mode
+  // 注意：pfill width 用 Math.min(100, …) clamp，避免 stats.rc 因为 fine_edits 跟
+  // sentence_deletes overlap 被 naive 双算而偏小，导致 vt/stats.rc>1 时进度条溢出。
+  // 数据层根治在 PR #107。
   if(previewMode) {
     const vt = originalToVirtual(t);
     document.getElementById('ptm').textContent=fm(vt);
-    // Progress bar based on virtual time / rough cut duration
     const stats = computeStats();
-    if(stats.rc > 0) document.getElementById('pfill').style.width=(vt/stats.rc*100)+'%';
+    if(stats.rc > 0) document.getElementById('pfill').style.width=Math.min(100, vt/stats.rc*100)+'%';
   } else {
     document.getElementById('ptm').textContent=fm(t);
-    if(d>0) document.getElementById('pfill').style.width=(t/d*100)+'%';
+    if(d>0) document.getElementById('pfill').style.width=Math.min(100, t/d*100)+'%';
   }
 
   const cur=S.find((x,i)=>{const nx=S[i+1];return t>=x.s&&(!nx||t<nx.s)});
