@@ -363,6 +363,8 @@ template = template.replace(/__AUDIO_SRC__/g, audioSrc);
 template = template.replace(/__TITLE__/g, title);
 template = template.replace(/__PROJECT_NAME__/g, title);
 template = template.replace(/__STAGE_TITLE__/g, fineFile ? '精剪逐字稿' : '粗剪逐字稿');
+template = template.replace(/__STAGE_PREVIEW_LABEL__/g, fineFile ? '精剪预览' : '粗剪预览');
+template = template.replace(/__STAGE_CASSETTE_LABEL__/g, fineFile ? 'FINE CUT' : 'ROUGH CUT');
 template = template.replace(/__BODY_MODE_CLASS__/g, fineFile ? 'fine' : '');
 
 // 读 transcription_meta.json（generate_subtitles_from_aliyun.js 推断出来的）。没有的话

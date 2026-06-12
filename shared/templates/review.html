@@ -654,7 +654,7 @@ body.fine .bulkbar { display: none !important; }
       <div class="mode-toggle" id="mode-toggle">
         <div class="mode-slider" id="mode-slider"></div>
         <button class="mode-btn active" id="mode-edit" onclick="setMode('edit')">✎ 编辑模式</button>
-        <button class="mode-btn" id="mode-preview" onclick="setMode('preview')">▶ 精剪预览</button>
+        <button class="mode-btn" id="mode-preview" onclick="setMode('preview')">▶ __STAGE_PREVIEW_LABEL__</button>
       </div>
     </div>
   </div>
@@ -689,7 +689,7 @@ body.fine .bulkbar { display: none !important; }
           <div class="cassette-reel"></div>
           <div class="cassette-reel"></div>
         </div>
-        <div class="cassette-label">ROUGH CUT</div>
+        <div class="cassette-label">__STAGE_CASSETTE_LABEL__</div>
       </div>
     </div>
   </div>
@@ -1413,7 +1413,7 @@ function setMode(mode) {
   const pencil = document.getElementById('mt-pencil');
   const cassette = document.getElementById('mt-cassette');
 
-  text.textContent = previewMode ? '精剪预览' : '编辑模式';
+  text.textContent = previewMode ? '__STAGE_PREVIEW_LABEL__' : '编辑模式';
   pencil.style.display = previewMode ? 'none' : 'block';
   cassette.style.display = previewMode ? 'block' : 'none';
   trans.classList.add('active');
