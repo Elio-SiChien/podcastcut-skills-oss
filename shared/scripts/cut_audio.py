@@ -148,16 +148,26 @@ def snap_delete_segments_to_silences(delete_segs, silences,
         dur = seg['end'] - seg['start']
 
         # 计算 user-keep safeguard floor/ceiling
+        # Boundary inclusion: a word ending exactly at seg.start is the LAST
+        # kept word (delete starts immediately after it); a word starting
+        # exactly at seg.end is the FIRST kept word (delete ends just before
+        # it). Both must be included in the floor/ceiling, hence bisect_right
+        # against seg.start and bisect_left against seg.end (no fudge).
+        # The earlier `- 0.001` fudge in the LEFT-side bisect excluded such
+        # boundary words and let snap LEFT eat into them — EP23 "connection。"
+        # (word at [3855.43, 3856.06], delete at [3856.06, 3858]) lost most
+        # of its audio because the safeguard picked the prior word "有" as
+        # the floor anchor instead of "connection。".
         keep_floor = prev_end
         keep_ceiling = next_start
         if word_ends_sorted:
-            idx = bisect.bisect_right(word_ends_sorted, seg['start'] - 0.001) - 1
+            idx = bisect.bisect_right(word_ends_sorted, seg['start']) - 1
             if idx >= 0:
                 last_keep_word_end = word_ends_sorted[idx]
                 if last_keep_word_end > prev_end:
                     keep_floor = max(keep_floor, last_keep_word_end + KEEP_SAFEGUARD_SLACK)
         if word_starts_sorted:
-            idx = bisect.bisect_left(word_starts_sorted, seg['end'] + 0.001)
+            idx = bisect.bisect_left(word_starts_sorted, seg['end'])
             if idx < len(word_starts_sorted):
                 first_keep_word_start = word_starts_sorted[idx]
                 if first_keep_word_start < next_start:
