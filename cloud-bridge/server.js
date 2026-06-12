@@ -1062,17 +1062,26 @@ function handleEditSpeakerSample(query, res) {
   fs.createReadStream(samplePath).pipe(res);
 }
 
+function audioMimeFor(p) {
+  const ext = path.extname(p).toLowerCase();
+  if (ext === '.m4a' || ext === '.mp4' || ext === '.aac') return 'audio/mp4';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.ogg' || ext === '.opus') return 'audio/ogg';
+  if (ext === '.flac') return 'audio/flac';
+  return 'audio/mpeg';
+}
+
 function handleAudio(s, req, res) {
   if (!isValidSession(s)) return sendErr(res, 404, 'bad session');
   const meta = readMeta(s);
   if (!meta.audio_path || !fs.existsSync(meta.audio_path)) return sendErr(res, 404, 'audio not found');
+  const mime = audioMimeFor(meta.audio_path);
   fs.stat(meta.audio_path, (err, stat) => {
     if (err) return sendErr(res, 500, 'stat error');
     const range = req.headers.range;
     if (!range) {
-      // full file
       res.writeHead(200, {
-        'content-type': 'audio/mpeg',
+        'content-type': mime,
         'content-length': stat.size,
         'accept-ranges': 'bytes',
       });
@@ -1085,7 +1094,7 @@ function handleAudio(s, req, res) {
     let end = m[2] ? parseInt(m[2], 10) : stat.size - 1;
     if (start >= stat.size || end >= stat.size) return sendErr(res, 416, 'range out of bounds');
     res.writeHead(206, {
-      'content-type': 'audio/mpeg',
+      'content-type': mime,
       'content-length': end - start + 1,
       'content-range': `bytes ${start}-${end}/${stat.size}`,
       'accept-ranges': 'bytes',

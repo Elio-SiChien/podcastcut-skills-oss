@@ -92,7 +92,9 @@ def detect_silences(wav_path, noise_db=SILENCE_SNAP_NOISE_DB, min_dur=SILENCE_SN
 def snap_delete_segments_to_silences(delete_segs, silences,
                                     window=SILENCE_SNAP_LONG_WINDOW,
                                     long_threshold=SILENCE_SNAP_LONG_DELETE_THRESHOLD,
-                                    max_delete=SILENCE_SNAP_MAX_DELETE):
+                                    max_delete=SILENCE_SNAP_MAX_DELETE,
+                                    speech_word_ends=None,
+                                    speech_word_starts=None):
     """
     把"长 delete"（整句/半句删，duration ≥ long_threshold）的 start / end
     吸附到真静音边界。
@@ -113,14 +115,30 @@ def snap_delete_segments_to_silences(delete_segs, silences,
     - delete.start 向左扩到该窗口内**最早**的 silence start
     - delete.end 向右扩到该窗口内**最晚**的 silence start 对应的 silence end
     - 约束：不跨越相邻 delete segment 的边界
+    - 用户保留句子保护（EP23 v3 回归 fix）：传入 speech_word_ends/starts 时，snap
+      不得跨越上一个真实 speech word 的尾巴 / 不得跨越下一个真实 speech word 的起音。
+      解决 silencedetect 把短而轻的 user-keep 句子（如 "明白明白" 1 秒）当成静音
+      被 snap 吞掉的问题。EP23 v3 撞过：[662.54, 666.43] snap LEFT 到 661.55
+      吞掉了 idx 176 "明白明白" 的整段音频。
+
+    speech_word_ends: 排序的 speech word end 时间 list (从 subtitles_words.json 提取)。
+                     snap LEFT 不得越过 max(word_end ≤ seg.start) + 50ms slack。
+    speech_word_starts: 排序的 speech word start 时间 list。
+                       snap RIGHT 不得越过 min(word_start ≥ seg.end) - 50ms slack。
 
     返回 (snapped_segs, stats_dict)。
     """
+    import bisect
     sorted_segs = sorted(delete_segs, key=lambda x: x['start'])
     snapped = []
     snap_start_count = 0
     snap_end_count = 0
     total_extended = 0.0
+    user_keep_safeguarded = 0  # how many snap attempts were limited by user-keep words
+
+    word_ends_sorted = sorted(speech_word_ends) if speech_word_ends else None
+    word_starts_sorted = sorted(speech_word_starts) if speech_word_starts else None
+    KEEP_SAFEGUARD_SLACK = 0.05  # 50ms slack around user-keep word boundaries
 
     for i, seg in enumerate(sorted_segs):
         new_start = seg['start']
@@ -128,6 +146,22 @@ def snap_delete_segments_to_silences(delete_segs, silences,
         prev_end = sorted_segs[i-1]['end'] if i > 0 else 0.0
         next_start = sorted_segs[i+1]['start'] if i+1 < len(sorted_segs) else float('inf')
         dur = seg['end'] - seg['start']
+
+        # 计算 user-keep safeguard floor/ceiling
+        keep_floor = prev_end
+        keep_ceiling = next_start
+        if word_ends_sorted:
+            idx = bisect.bisect_right(word_ends_sorted, seg['start'] - 0.001) - 1
+            if idx >= 0:
+                last_keep_word_end = word_ends_sorted[idx]
+                if last_keep_word_end > prev_end:
+                    keep_floor = max(keep_floor, last_keep_word_end + KEEP_SAFEGUARD_SLACK)
+        if word_starts_sorted:
+            idx = bisect.bisect_left(word_starts_sorted, seg['end'] + 0.001)
+            if idx < len(word_starts_sorted):
+                first_keep_word_start = word_starts_sorted[idx]
+                if first_keep_word_start < next_start:
+                    keep_ceiling = min(keep_ceiling, first_keep_word_start - KEEP_SAFEGUARD_SLACK)
 
         if long_threshold <= dur < max_delete:
             # 吸附 start：选窗口内 sil_s 最小（最左）的 silence
@@ -141,10 +175,12 @@ def snap_delete_segments_to_silences(delete_segs, silences,
                     earliest_silence_for_start = (sil_s, sil_e)
             if earliest_silence_for_start:
                 sil_s, _ = earliest_silence_for_start
-                candidate = max(sil_s, prev_end)
+                candidate = max(sil_s, prev_end, keep_floor)
                 if candidate < new_start:
                     new_start = candidate
                     snap_start_count += 1
+                if max(sil_s, prev_end) < keep_floor:
+                    user_keep_safeguarded += 1
 
             # 吸附 end：选窗口内 sil_s 最大（最右）的 silence
             latest_silence_for_end = None
@@ -157,10 +193,12 @@ def snap_delete_segments_to_silences(delete_segs, silences,
                     latest_silence_for_end = (sil_s, sil_e)
             if latest_silence_for_end:
                 _, sil_e = latest_silence_for_end
-                candidate = min(sil_e, next_start)
+                candidate = min(sil_e, next_start, keep_ceiling)
                 if candidate > new_end:
                     new_end = candidate
                     snap_end_count += 1
+                if min(sil_e, next_start) > keep_ceiling:
+                    user_keep_safeguarded += 1
 
         total_extended += (seg['start'] - new_start) + (new_end - seg['end'])
         snapped.append({'start': new_start, 'end': new_end})
@@ -180,6 +218,7 @@ def snap_delete_segments_to_silences(delete_segs, silences,
         'extended_seconds': total_extended,
         'segments_before': len(sorted_segs),
         'segments_after': len(merged),
+        'user_keep_safeguarded': user_keep_safeguarded,
     }
 
 
@@ -466,7 +505,28 @@ def main():
         print(f"🔈 silence-snap: 检测源音频静音区间（noise<-30dB, ≥{SILENCE_SNAP_MIN_DUR}s）...")
         silences = detect_silences(temp_wav)
         print(f"   检测到 {len(silences)} 个静音区间")
-        delete_segs, snap_stats = snap_delete_segments_to_silences(delete_segs, silences)
+
+        # 从 speakers_json 提取 speech word 端点给 snap 当 user-keep safeguard
+        # 防止 silence-snap 把短而轻的 user-keep 句子（如 "明白明白"）当成静音吞掉
+        speech_word_ends = None
+        speech_word_starts = None
+        if speakers_json:
+            try:
+                with open(speakers_json) as f:
+                    words = json.load(f)
+                speech_words = [w for w in words
+                                if w.get('speaker') and not w.get('isGap') and not w.get('isSpeakerLabel')]
+                speech_word_ends = sorted(w['end'] for w in speech_words if w.get('end') is not None)
+                speech_word_starts = sorted(w['start'] for w in speech_words if w.get('start') is not None)
+                print(f"   user-keep safeguard: 从 {len(speech_words)} 个 speech words 加载边界")
+            except Exception as e:
+                print(f"   ⚠️ 读取 speech words 失败 ({e}); snap 走旧路径无 user-keep 保护")
+
+        delete_segs, snap_stats = snap_delete_segments_to_silences(
+            delete_segs, silences,
+            speech_word_ends=speech_word_ends,
+            speech_word_starts=speech_word_starts,
+        )
         if snap_stats['snap_start_count'] or snap_stats['snap_end_count']:
             print(f"   吸附 {snap_stats['snap_start_count']} 个 start / {snap_stats['snap_end_count']} 个 end")
             print(f"   delete 总时长扩展 {snap_stats['extended_seconds']:+.2f}s")
@@ -475,6 +535,8 @@ def main():
                 print(f"   {merged} 个相邻 segment 因 snap 合并")
         else:
             print(f"   没有 segment 被吸附（所有边界都已对齐到静音或窗口内无静音）")
+        if snap_stats.get('user_keep_safeguarded', 0):
+            print(f"   🛡️  user-keep 保护机制阻止 {snap_stats['user_keep_safeguarded']} 次 snap 越过 keep word 边界")
         print("")
     else:
         print("⚠️ --no-snap：跳过 silence-snap（边界用 ASR 原值）")
