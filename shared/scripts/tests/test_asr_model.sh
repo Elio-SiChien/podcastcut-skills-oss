@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Regression test: ensure ASR model in aliyun_funasr_transcribe.sh is 'fun-asr'.
+# Regression test: ensure aliyun_funasr_transcribe.sh keeps the validated ASR contract.
 #
-# 背景：辟客 EP21 task #7（2026-06-09）发现 paraformer-v2 在长 utterance 上
-# 时间戳偏 1s+，下游 cut_audio.py 切在词中间漏剪/误剪。回切到 fun-asr。
-# 之后未来再换模型必须经过 timestamp accuracy validation——
-# 这个测试守住"别人不小心在脚本里换回 paraformer-v2 而没跑回归"的 case。
+# 当前默认是 paraformer-v2 + timestamp_alignment_enabled=true。
+# 背景：PR #77 曾因未开 alignment flag 的测试把 paraformer-v2 判为长 utterance 漂移；
+# PR #80 复测后确认 alignment flag 能把同段漂移降到 ~180ms，并恢复热词支持。
+# 这个测试守住"别人改模型或关掉 alignment 而没跑时间戳回归"的 case。
 #
 # 用法: bash test_asr_model.sh [path/to/aliyun_funasr_transcribe.sh]
 
@@ -19,8 +19,9 @@ if [[ ! -f "$SCRIPT" ]]; then
     exit 1
 fi
 
-# 期望的 model 字段
-EXPECTED_MODEL="fun-asr"
+# 期望的 ASR contract
+EXPECTED_MODEL="paraformer-v2"
+EXPECTED_ALIGNMENT="true"
 
 # 抓取实际 model: '<value>' 字符串（应当只有一处）
 ACTUAL=$(grep -oE "model: '[^']+'" "$SCRIPT" | head -1 | sed -E "s/model: '([^']+)'/\1/")
@@ -32,10 +33,14 @@ fi
 
 if [[ "$ACTUAL" != "$EXPECTED_MODEL" ]]; then
     echo "❌ ASR model regression: 期望 '$EXPECTED_MODEL'，实际 '$ACTUAL'" >&2
-    echo "   如果故意要换模型，请先跑词级时间戳 validation：" >&2
-    echo "   - 取一段已知音频，跑新 ASR + Whisper，对比各词时间戳偏差 ≤ 0.3s" >&2
-    echo "   - 通过后再改本脚本 + 更新本测试的 EXPECTED_MODEL" >&2
+    echo "   如果故意要换模型，请先跑词级时间戳 validation，通过后再更新本测试。" >&2
     exit 1
 fi
 
-echo "✅ ASR model = '$ACTUAL'"
+if ! grep -qE "timestamp_alignment_enabled:[[:space:]]*$EXPECTED_ALIGNMENT" "$SCRIPT"; then
+    echo "❌ ASR timestamp alignment regression: 期望 timestamp_alignment_enabled: $EXPECTED_ALIGNMENT" >&2
+    echo "   如果故意关闭 alignment，请先验证 partial-delete / highlight 跟读的词级时间戳偏差。" >&2
+    exit 1
+fi
+
+echo "✅ ASR model = '$ACTUAL', timestamp_alignment_enabled = $EXPECTED_ALIGNMENT"

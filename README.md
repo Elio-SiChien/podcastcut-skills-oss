@@ -45,10 +45,30 @@ brew install node ffmpeg
 # API Key
 cp .env.example .env
 # 编辑 .env，填入阿里云 DashScope API Key
+
+# 自检
+npm install
+npm run doctor
+npm test
+```
+
+如果 Python 依赖装在虚拟环境里，`doctor` 支持显式指定解释器：
+
+```bash
+PYTHON=.venv/bin/python npm run doctor
 ```
 
 在 Slock / Claude Code chat 里直接发音频附件 + "剪一下"，触发 `podcastcut-edit-chat` 走完整流程；
 或在 CLI 里按需调用各 stage skill（`/podcastcut-转录` / `/podcastcut-粗剪` / 等）。
+
+## 自检命令
+
+| 命令 | 用途 |
+|------|------|
+| `npm run doctor` | 检查本机 Node / Python / ffmpeg / 输出目录 / API key / cloud-bridge 状态 |
+| `npm test` | 跑本地 regression tests，不需要网络或 API key |
+| `npm run status -- [BASE_DIR]` | 查看当前或指定项目的 `project.json` pipeline 状态 |
+| `npm run validate -- [BASE_DIR] [STAGE]` | 检查某个阶段所需输入文件是否齐全 |
 
 ## 流程
 
@@ -67,7 +87,7 @@ cp .env.example .env
 | `/podcastcut-安装` | 环境准备 |
 | `/podcastcut-edit-chat` | chat-mode 编排器（音频附件触发，串起各 stage，每步暂停） |
 | `/podcastcut-onboarding-chat` | 新播客首次接入（建 profile） |
-| `/podcastcut-转录` | 转录单元：音频 → FunASR → 字级转录 + 分句 |
+| `/podcastcut-转录` | 转录单元：音频 → DashScope paraformer-v2 + alignment → 字级转录 + 分句 |
 | `/podcastcut-粗剪` | 粗剪单元：段落级分析 + 句子级审查页 → `delete_segments_roughcut.json` |
 | `/podcastcut-精剪` | 精剪单元：词级口癖删减 + AI 自审查 + 词级审查页 → `delete_segments_edited.json` |
 | `/podcastcut-执行` | 执行单元：按删除清单从 `audio_original` 切成品（≥192k） |

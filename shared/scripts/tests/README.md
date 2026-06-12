@@ -19,17 +19,21 @@ python3 shared/scripts/tests/test_punctuation_density.py
 ## 测试
 
 ### `test_asr_model.sh`
-**守住**：辟客 EP21 task #7 发现 paraformer-v2 在长 utterance 上时间戳偏 1s+，
-下游 cut 切在词中间漏剪/误剪。
+**守住**：当前 ASR 默认必须是 `paraformer-v2 + timestamp_alignment_enabled=true`。
+这套组合在 PR #80 复测里把 EP21 同段长 utterance 漂移降到约 180ms，并恢复热词支持。
 
-**测试**：grep `aliyun_funasr_transcribe.sh` 里的 `model:` 字段 == `fun-asr`。
-任何人改回 `paraformer-v2`（或别的模型）而没改本测试，这条会立刻挂。
+**测试**：静态检查 `aliyun_funasr_transcribe.sh`：
+- `model:` 字段 == `paraformer-v2`
+- `timestamp_alignment_enabled: true`
 
-**修改流程**：如果故意要换 ASR 模型，**先**：
+任何人换模型或关掉 alignment 而没改本测试，这条会立刻挂。
+
+**修改流程**：如果故意要换 ASR 模型或 alignment 策略，**先**：
 1. 取一段已知音频，新 ASR + Whisper 跑一遍
 2. 对比各词时间戳偏差 ≤ 0.3s
 3. 验证标点密度通过 `test_punctuation_density.py`
-4. 通过后 PR 同步改本测试的 `EXPECTED_MODEL`，附 validation 报告
+4. 验证 partial-delete / highlight 跟读的实际切点
+5. 通过后 PR 同步改本测试的 contract，附 validation 报告
 
 ### `test_punctuation_density.py`
 **守住**：fun-asr 在长 utterance 上 suppress 句中标点 → 长 blob 句子，

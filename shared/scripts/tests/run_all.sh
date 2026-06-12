@@ -32,8 +32,8 @@ else
     echo
 fi
 
-# ASR model regression
-run_test "ASR model is fun-asr" bash "$SCRIPT_DIR/test_asr_model.sh"
+# ASR model/alignment regression
+run_test "ASR model/alignment contract" bash "$SCRIPT_DIR/test_asr_model.sh"
 
 # Punctuation density on fixture
 run_test "Punctuation density (fixture)" python3 "$SCRIPT_DIR/test_punctuation_density.py"

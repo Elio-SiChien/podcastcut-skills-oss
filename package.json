@@ -1,6 +1,12 @@
 {
   "name": "podcastcut-skills",
   "private": true,
+  "scripts": {
+    "doctor": "node tools/podcastcut.mjs doctor",
+    "status": "node tools/podcastcut.mjs status",
+    "validate": "node tools/podcastcut.mjs validate",
+    "test": "bash shared/scripts/tests/run_all.sh"
+  },
   "dependencies": {
     "js-yaml": "^4.1.1"
   }
