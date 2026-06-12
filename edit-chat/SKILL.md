@@ -1,10 +1,10 @@
 ---
 name: podcastcut:edit-chat
-description: 端到端剪辑（chat 版屏 2-7）。用户传 audio attachment 触发 → 读 profile → 7 个录后复盘 → 跑 pipeline（转录/粗剪/精剪/出片）→ 各 checkpoint chat 报告 + 粗剪给 review HTML link → 成品通过 Slock attachment 返回。触发词：剪一下、新一期、podcast cut、剪辑、processing
+description: 端到端剪辑（chat 版屏 2-7）。用户表达剪辑意图 → agent 默认 mint cloud-bridge 上传 URL 给用户（直接带 audio attachment 是 fallback）→ 读 profile → 7 个录后复盘 → 跑 pipeline（转录/粗剪/精剪/出片）→ 各 checkpoint chat 报告 + 粗剪给 review HTML link → 成品通过 Slock attachment 返回。触发词：剪一下、新一期、podcast cut、剪辑、processing
 ---
 
 <!--
-input: 用户 DM 里发的 audio attachment + 已存在的 profile (没有则先调 onboarding-chat)
+input: 用户表达剪辑意图（默认从 cloud-bridge 上传 URL 拿 audio；若用户直接附 audio attachment 则消费） + 已存在的 profile (没有则先调 onboarding-chat)
 output: 成品音频 via slock attachment upload + 粗剪 review HTML link
 
 pos: chat 服务的主流程 skill；调度现有 6 个 skill
@@ -36,20 +36,31 @@ Cloud-bridge 实际是 launchd 永久跑着的（PR #41 + #56），URL 文件**�
 
 ## 触发
 
-用户在 DM / channel 给我发音频 attachment（mp3 / m4a / wav）+ 任意意图文字。例如：
+用户在 DM / channel 表达剪辑意图（文字 / 直接附件 都算）。例如：
 ```
+user: 剪一下
+user: 新一期，3 人闲聊
 user: [audio attachment]
-user: 剪一下，3 人闲聊
 ```
 
-或者干脆只有附件没文字——我看到 audio attachment 默认意图就是剪辑。
+**默认流程：mint 一个 cloud-bridge upload URL 发给用户**（路径见 "前置：大文件上传"）。理由：
+- 不管音频 0-50MB 还是 50MB-2GB 用同一路径，agent 分支更简单
+- chunked / resumable upload（PR #87）带真实进度 + 断点续传，体验比 Slock attachment 拖文件好
+- 70-90 分钟节目高码率 .m4a / .wav 经常踩 Slock 50MB 硬上限
 
-**如果用户没有附件**（只说"剪一下"/"帮我剪本期"等意图）→ 走下面"前置：大文件上传"路径，cloud-bridge 开一个 upload 页让用户拖文件。
+**Slock attachment 仍受支持**，但只作 fallback：用户已经在第一条消息里把 audio attachment 一起发过来时（人都拖完了），就**直接消费这个 attachment**，不用再让用户走上传链接绕一圈。判定：
+
+```
+if (触发 message 已带 audio attachment) → Slock attachment 路径（见"前置：profile"段)
+else                                    → 默认 cloud-bridge upload URL（见"前置：大文件上传"）
+```
 
 ## 前置：profile
 
-如果是 attachment 路径：调 `slock attachment view --id <attachment-id> --output <local-path>` 把 audio 下载到 local（≤50MB attachment 都走这）。
-然后：
+**如果触发消息附带 audio attachment**（fallback 路径，用户已经拖文件了不打断）：调 `slock attachment view --id <attachment-id> --output <local-path>` 把 audio 下载到 local。
+**否则**：跳到下面"前置：上传音频（默认）"先拿到 audio_original.mp3。
+
+profile 解析下面这套逻辑两个路径共用：
 - 检查 `$SKILL_DIR/../profiles/`：没 profile → 自动跑 `podcastcut-onboarding-chat`
 - 多个 profile → chat 问 "这期是哪档播客？[列出来]"
 - 1 个 profile → 默认用它，chat 简短确认 "[名字]，对吧？"
@@ -105,9 +116,11 @@ fi
 
 ---
 
-## 前置：大文件上传（>50 MB 音频 / 用户没附件就触发）
+## 前置：上传音频（默认路径）
 
-Slock 附件硬上限 50 MB；一小时长节目高码率任何选择都会超。用户也可能就直接说"剪一下"没带附件。两种情况都走 cloud-bridge upload session。
+**默认所有期都走 cloud-bridge upload session**（PR #87 chunked / resumable upload 后已经是体验最好的路径）：用户在浏览器拖文件 → 真实进度条 → 断点续传 → 不受 50MB attachment 上限影响。
+
+唯一例外：用户在触发消息里直接附了 audio attachment（≤50MB），那就走"前置：profile" 里的 attachment fallback 分支，**不要让用户拖完文件再去走上传 URL 绕一圈**。
 
 ```bash
 # 1. mint upload session
@@ -133,11 +146,13 @@ chat 文案示例：
 
 ```
 chat:
-比 Slock 附件能塞的大，给你个直接上传的页面：
+来开剪 🎙️ —— 把这期音频拖进下面这页就行，我看到上传完成立刻开始：
 $TUNNEL_URL/u/<session>
 
-把音频拖进去就行，传完我立刻开剪。
+带进度条、断了能续传，多大都行。
 ```
+
+> 老文案"比 Slock 附件能塞的大..."已弃用——之前是把上传 URL 当成"大文件兜底"，所以文案带歉意；现在是默认路径，不用解释"为什么不用 attachment"。
 
 **注意**：
 - 默认接收名是 `audio_original.mp3`（剪播客 cut_audio.py 要求的原始音频文件名约定）。如果用户传的是 .wav / .m4a，文件落地后 mime 不一致没关系——cut_audio.py 用 ffmpeg 处理。但**最好让上传名贴源格式**，第二个参数传 `audio_original.<ext>` 视用户预声明而定。
