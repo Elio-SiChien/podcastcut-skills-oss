@@ -844,7 +844,7 @@ function renderSidebar() {
   // Navigator
   document.getElementById('nav').innerHTML = CHAPS.map((ch,i)=>{
     return`<div class="nav-item${i===curNav?' active':''}" onclick="navTo(${i})">
-      <span class="nav-num">${String(i+1).padStart(2,'0')}</span>
+      <span class="nav-num">${String(i).padStart(2,'0')}</span>
       <div class="nav-body">
         <div class="nav-title">${esc(ch.title)}</div>
         <div class="nav-ts">${ch.time} · ${esc(ch.desc)}</div>
@@ -857,7 +857,7 @@ function renderSidebar() {
 function renderTx() {
   const c=document.getElementById('tx');let h='';
   const bm={};BLK.forEach(b=>{for(let i=b.r[0];i<=b.r[1];i++)bm[i]=b});
-  const cm={};CHAPS.forEach((ch,i)=>{if(ch.startIdx!==undefined)cm[ch.startIdx]={...ch,num:i+1}});
+  const cm={};CHAPS.forEach((ch,i)=>{if(ch.startIdx!==undefined)cm[ch.startIdx]={...ch,num:i}});
 
   // 渲染单行
   function rowHtml(x, extraCls=''){
@@ -871,7 +871,7 @@ function renderTx() {
       const dis = fdis.has(s.key) ? ' dis' : '';
       return `<span class="in-sil${dis}" data-key="${s.key}" title="句尾停顿 ${s.duration}s（点击 ${fdis.has(s.key)?'启用':'禁用'} 此静音）">⏸ ${s.duration}s</span>`;
     }).join('');
-    return `<div class="${cl}" id="r${x.idx}" onclick="selectSentence(${x.idx}, event)"><div class="r-chk"><div class="chk ${id?'on':''}" onclick="event.stopPropagation();tgS(${x.idx})">✕</div></div><div class="r-num mono">${x.idx+1}</div><div class="r-sp">${x.sp}</div><div class="r-tm" onclick="event.stopPropagation();goTo(${x.idx}, true)" title="播放这一句">${x.ts}</div><div class="r-txt">${incTags}${txtHtml(x)}${reasonTag}</div></div>`;
+    return `<div class="${cl}" id="r${x.idx}" onclick="selectSentence(${x.idx}, event)"><div class="r-chk"><div class="chk ${id?'on':''}" onclick="event.stopPropagation();tgS(${x.idx})">✕</div></div><div class="r-num mono">${x.idx}</div><div class="r-sp">${x.sp}</div><div class="r-tm" onclick="event.stopPropagation();goTo(${x.idx}, true)" title="播放这一句">${x.ts}</div><div class="r-txt">${incTags}${txtHtml(x)}${reasonTag}</div></div>`;
   }
 
   let lb=null;

@@ -197,17 +197,37 @@ if (analysis.blocks) {
 // 优先使用分析文件中的 chapters（AI 生成的内容分段）
 const CHAPS = [];
 if (analysis.chapters && analysis.chapters.length > 0) {
+  let nudgedCount = 0;
   analysis.chapters.forEach(ch => {
-    const sent = S.find(s => s.idx === ch.range[0]);
+    // template renders the chapter header inline before the sentence at
+    // startIdx. but if that sentence is part of a delete run, the renderer's
+    // fold-run path swallows it (along with the chap header) into the
+    // collapsed deleted block — chapter title disappears. happens whenever
+    // chapter range[0] lands on a sentence the user committed as deleted, or
+    // a suggest_delete the AI marked. fix: advance startIdx to the first
+    // KEPT sentence inside the chapter's range so the header always renders.
+    let startIdx = ch.range[0];
+    const endIdx = ch.range[1];
+    while (startIdx <= endIdx && (deletedSet.has(startIdx) || suggestedSet.has(startIdx))) {
+      startIdx++;
+    }
+    if (startIdx > endIdx) {
+      // whole chapter is deleted — keep original startIdx so the chapter
+      // still shows up in the nav sidebar (rendered from CHAPS directly,
+      // not the per-sentence fold logic)
+      startIdx = ch.range[0];
+    }
+    if (startIdx !== ch.range[0]) nudgedCount++;
+    const sent = S.find(s => s.idx === startIdx);
     CHAPS.push({
-      startIdx: ch.range[0],
-      endIdx: ch.range[1],
+      startIdx,
+      endIdx,
       time: sent ? sent.ts : ch.startTime || '0:00',
       title: ch.title,
       desc: ch.desc || ''
     });
   });
-  console.log(`   章节: ${CHAPS.length} (来自分析文件)`);
+  console.log(`   章节: ${CHAPS.length} (来自分析文件)${nudgedCount > 0 ? `, ${nudgedCount} 个 startIdx 推进到首个 kept 句以避免 fold 吞 header` : ''}`);
 } else {
   // Fallback: 自动均分
   const keptSentences = S.filter(s => !s.ai);
