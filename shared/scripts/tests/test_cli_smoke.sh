@@ -57,6 +57,19 @@ if ! grep -q "> fine" <<< "$STATUS_OUT"; then
   exit 1
 fi
 
+FOOTER_OUT="$(node "$REPO_ROOT/tools/podcastcut.mjs" footer "$BASE_DIR" roughcut)"
+if ! grep -q "📍 当前已完成：粗剪" <<< "$FOOTER_OUT"; then
+  echo "❌ footer did not print completed stage" >&2
+  echo "$FOOTER_OUT" >&2
+  exit 1
+fi
+
+if ! grep -q "🎯 下一步：精剪（词级口癖删减，自动）" <<< "$FOOTER_OUT"; then
+  echo "❌ footer did not print expected next step" >&2
+  echo "$FOOTER_OUT" >&2
+  exit 1
+fi
+
 for stage in transcribe roughcut fine execute qa audio_quality post; do
   node "$REPO_ROOT/tools/podcastcut.mjs" validate "$BASE_DIR" "$stage" >/dev/null
 done
@@ -101,4 +114,4 @@ if ! grep -q "podcastcut fresh-agent (dispatcher)" <<< "$FRESH_DISPATCHER_OUT"; 
   exit 1
 fi
 
-echo "✅ CLI smoke status/validate/fresh-agent passed"
+echo "✅ CLI smoke status/validate/footer/fresh-agent passed"

@@ -10,6 +10,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 const STAGES = ['transcribe', 'roughcut', 'fine', 'execute', 'qa', 'audio_quality', 'post'];
+const STAGE_LABELS = {
+  transcribe: '转录',
+  roughcut: '粗剪',
+  fine: '精剪',
+  execute: '出片',
+  qa: '质检',
+  audio_quality: '音质',
+  post: '后期',
+};
+const MANDATORY_STAGES = ['transcribe', 'roughcut', 'fine', 'execute'];
+const OPTIONAL_STAGES = ['qa', 'audio_quality', 'post'];
 
 function main() {
   const [cmd, ...args] = process.argv.slice(2);
@@ -17,6 +28,7 @@ function main() {
 
   try {
     if (cmd === 'doctor') return doctor(args);
+    if (cmd === 'footer') return footer(args);
     if (cmd === 'fresh-agent') return freshAgent(args);
     if (cmd === 'status') return status(args);
     if (cmd === 'validate') return validate(args);
@@ -31,12 +43,14 @@ function usage(code, msg = '') {
   if (msg) console.error(`ERROR: ${msg}\n`);
   console.log(`Usage:
   npm run doctor
+  npm run footer -- [BASE_DIR] [COMPLETED_STAGE]
   npm run fresh-agent -- [--role podcast|dispatcher]
   npm run status -- [BASE_DIR]
   npm run validate -- [BASE_DIR] [STAGE]
 
 Commands:
   doctor       Check local machine prerequisites.
+  footer       Render the standard checkpoint progress footer.
   fresh-agent  Check installed snapshot/profile/tunnel readiness for a new agent.
   status       Show project.json pipeline state.
   validate     Check required files for one stage or the current stage.
@@ -89,6 +103,28 @@ function doctor(args) {
   exitForRequiredChecks(checks);
 }
 
+function footer(args) {
+  const opts = parseOpts(args);
+  const positional = opts._;
+  let baseDir;
+  let completedStage;
+
+  if (positional[0] && STAGES.includes(positional[0])) {
+    completedStage = positional[0];
+    baseDir = resolveCurrentBaseDir(opts);
+  } else {
+    baseDir = positional[0] ? path.resolve(positional[0]) : resolveCurrentBaseDir(opts);
+    completedStage = positional[1];
+  }
+
+  if (!baseDir) throw new Error('BASE_DIR not provided and no output/.current_project found');
+  const manifest = loadManifest(baseDir);
+  completedStage ||= inferCompletedStage(manifest);
+  if (!STAGES.includes(completedStage)) throw new Error(`unknown completed stage: ${completedStage}`);
+
+  console.log(renderFooter(manifest, completedStage));
+}
+
 function freshAgent(args) {
   const opts = parseOpts(args);
   const role = normalizeFreshAgentRole(opts.role || opts._[0] || 'podcast');
@@ -120,6 +156,109 @@ function freshAgent(args) {
 
   printChecks(`podcastcut fresh-agent (${role})`, checks);
   exitForRequiredChecks(checks);
+}
+
+function inferCompletedStage(manifest) {
+  const current = manifest.current_stage;
+  if (current && MANDATORY_STAGES.includes(current)) {
+    const currentIndex = MANDATORY_STAGES.indexOf(current);
+    if (currentIndex > 0) return MANDATORY_STAGES[currentIndex - 1];
+  }
+
+  const pipeline = Array.isArray(manifest.pipeline) ? manifest.pipeline : [];
+  const completed = pipeline
+    .filter((stage) => isDoneLike(stage.status))
+    .map((stage) => stage.id)
+    .filter((id) => STAGES.includes(id));
+
+  for (const id of [...STAGES].reverse()) {
+    if (completed.includes(id)) return id;
+  }
+
+  return 'transcribe';
+}
+
+function renderFooter(manifest, completedStage) {
+  const completedSet = completedStageSet(manifest, completedStage);
+  const nextStage = nextMandatoryStage(completedSet);
+  const completedLabel = STAGE_LABELS[completedStage] || completedStage;
+  const nextLine = nextStage ? nextMandatoryText(nextStage) : optionalNextText(completedSet);
+
+  return [
+    '—————',
+    `📍 当前已完成：${completedLabel}`,
+    `🎯 下一步：${nextLine}`,
+    `📋 剩余流程：${remainingFlowText(completedSet, nextStage)}`,
+  ].join('\n');
+}
+
+function completedStageSet(manifest, completedStage) {
+  const done = new Set();
+  const completedIndex = STAGES.indexOf(completedStage);
+  for (const id of MANDATORY_STAGES) {
+    if (STAGES.indexOf(id) <= completedIndex) done.add(id);
+  }
+
+  const pipeline = Array.isArray(manifest.pipeline) ? manifest.pipeline : [];
+  for (const stage of pipeline) {
+    if (OPTIONAL_STAGES.includes(stage.id) && isDoneLike(stage.status)) {
+      done.add(stage.id);
+    }
+  }
+  return done;
+}
+
+function nextMandatoryStage(completedSet) {
+  return MANDATORY_STAGES.find((id) => !completedSet.has(id)) || null;
+}
+
+function nextMandatoryText(stage) {
+  const text = {
+    roughcut: '粗剪（段落级删减，自动）',
+    fine: '精剪（词级口癖删减，自动）',
+    execute: '出片（按你的决定切音频）',
+  };
+  return text[stage] || STAGE_LABELS[stage] || stage;
+}
+
+function optionalNextText(completedSet) {
+  const options = OPTIONAL_STAGES.filter((id) => !completedSet.has(id));
+  if (!options.length) return '完成';
+  const labels = options.map((id, index) => `${String.fromCharCode(65 + index)}) ${optionalLabel(id)}`);
+  return `${labels.join(' / ')} / ${String.fromCharCode(65 + options.length)}) 完成`;
+}
+
+function remainingFlowText(completedSet, nextStage) {
+  if (!nextStage) {
+    const remainingOptional = OPTIONAL_STAGES.filter((id) => !completedSet.has(id)).map(optionalShortLabel);
+    if (!remainingOptional.length) return '✅ 全部流程已做';
+    return `✅ 全部必走阶段已做 · 可选：${remainingOptional.join(' / ')}`;
+  }
+
+  const mandatory = MANDATORY_STAGES.map((id) => {
+    if (completedSet.has(id)) return `✅ ${STAGE_LABELS[id]}`;
+    if (id === nextStage) return `**${STAGE_LABELS[id]}**`;
+    return STAGE_LABELS[id];
+  }).join(' → ');
+  const optional = OPTIONAL_STAGES.map(optionalShortLabel).join(' · ');
+  return `${mandatory} · ${optional}`;
+}
+
+function optionalLabel(id) {
+  const text = {
+    qa: '质检',
+    audio_quality: '音质处理',
+    post: '后期（片头/章节/简介/金句）',
+  };
+  return text[id] || STAGE_LABELS[id] || id;
+}
+
+function optionalShortLabel(id) {
+  return STAGE_LABELS[id] || id;
+}
+
+function isDoneLike(status) {
+  return ['done', 'approved', 'complete', 'completed', 'skipped'].includes(String(status || '').toLowerCase());
 }
 
 function status(args) {

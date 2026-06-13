@@ -57,6 +57,7 @@ Do not `cd` into a cloned dev repo just because it exists in your workspace. The
 | Command | Purpose |
 |---------|---------|
 | `npm run doctor` | Check local machine prerequisites and runtime configuration. |
+| `npm run footer -- [BASE_DIR] [COMPLETED_STAGE]` | Render the standard checkpoint footer for customer-facing updates. |
 | `npm run fresh-agent -- --role podcast` | Check installed snapshot, edit-chat skill, profile, output dir, and cloud-bridge readiness. |
 | `npm run fresh-agent -- --role dispatcher` | Check installed snapshot, dispatcher skill, output dir, and cloud-bridge visibility. |
 | `npm test` | Run offline regression tests. No network or API key required. |

@@ -58,6 +58,7 @@ Fresh agent onboarding: see `AGENT_ONBOARDING.md`.
 | 命令 | 用途 |
 |------|------|
 | `npm run doctor` | 检查本机 Node / Python / ffmpeg / 输出目录 / API key / cloud-bridge 状态 |
+| `npm run footer -- [BASE_DIR] [COMPLETED_STAGE]` | 生成 checkpoint chat 的“当前已完成 / 下一步 / 剩余流程”三行 footer |
 | `npm run fresh-agent -- --role podcast` | 检查新专属剪辑 agent 的 snapshot / profile / output / cloud-bridge 是否就绪 |
 | `npm run fresh-agent -- --role dispatcher` | 检查通用 dispatcher agent 的 snapshot / output / cloud-bridge 是否就绪 |
 | `npm test` | 跑本地 regression tests，不需要网络或 API key |

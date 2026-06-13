@@ -51,6 +51,13 @@ Cloud-bridge 实际是 launchd 永久跑着的（PR #41 + #56），URL 文件**�
 
 各 checkpoint 的标准 footer（直接 copy，按实际数字调）：
 
+```bash
+npm run footer -- "$BASE_DIR" roughcut   # 指定刚完成的 stage
+npm run footer -- "$BASE_DIR"            # 或从 project.json 推断
+```
+
+优先用 CLI 生成，避免 dedicated agents 手写时漏字段或用错下一步。
+
 | 完成阶段 | 下一步 | 剩余流程行 |
 |---|---|---|
 | 转录 + 说话人确认 | 粗剪（段落级删减，自动） | ✅ 转录 → **粗剪** → 精剪 → 出片 · 质检 · 音质 · 后期 |
