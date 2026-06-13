@@ -39,18 +39,23 @@ bash "$PODCASTCUT_DIR/安装/install.sh"
 
 脚本会：
 1. 把 `shared/` 复制到 `~/.claude/skills/podcastcut-shared/`（canonical snapshot）
-2. 给每个技能创建 `~/.claude/skills/podcastcut-<名>/` 实目录（不是 symlink），里面：
+2. 把 `cloud-bridge/` 复制到 `~/.claude/skills/cloud-bridge/`（不复制 runtime sessions / pending / current_tunnel_url.txt）
+3. 把 `AGENT_ONBOARDING.md` 复制成 `~/.claude/skills/podcastcut-shared/QUICKSTART_AGENT.md`
+4. 确保 `~/.claude/skills/profiles/` 存在（保留已有 profile JSON，不覆盖用户数据）
+5. 给每个技能创建 `~/.claude/skills/podcastcut-<名>/` 实目录（不是 symlink），里面：
    - SKILL.md（复制自 dev 仓库）
    - `shared/` → `../podcastcut-shared/`（symlink，dedup 指向 canonical snapshot）
    - `output/` → 项目 output 路径（symlink，default `/Volumes/T9/claude_skill/podcastcut/output`）
-3. 写 `install_manifest.json` 记录 install-time 的 git commit + branch + 时间
-4. 跑 pre-flight 自检：所有 `$SKILL_DIR/SKILL.md` / `$SKILL_DIR/shared/scripts` / `$SKILL_DIR/shared/templates` 都存在 → 没问题就报 ✅；否则 fail-fast 提示哪条 path 没装上
+6. 写 `install_manifest.json` 记录 install-time 的 git commit + branch + 时间
+7. 跑 pre-flight 自检：所有 `$SKILL_DIR/SKILL.md` / `$SKILL_DIR/shared/scripts` / `$SKILL_DIR/shared/templates` 都存在 → 没问题就报 ✅；否则 fail-fast 提示哪条 path 没装上
 
 验证：
 
 ```bash
 ls ~/.claude/skills/ | grep podcastcut
 cat ~/.claude/skills/podcastcut-shared/install_manifest.json   # 查看当前 install 版本
+cat ~/.claude/skills/podcastcut-shared/QUICKSTART_AGENT.md      # 新 agent 快速入口
+npm run fresh-agent -- --role podcast
 ```
 
 > **注意**：如果 `~/.claude/skills/` 目录不存在，install.sh 会自动创建。

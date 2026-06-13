@@ -22,22 +22,11 @@
 ## 安装
 
 ```bash
-git clone https://github.com/chenyusi/podcastcut-skills.git
+git clone https://github.com/luoyuweidu1/podcastcut-skills.git
 cd podcastcut-skills
 
 # 注册 Claude Code Skills
-PODCASTCUT_DIR="$(pwd)"
-mkdir -p ~/.claude/skills
-ln -s "$PODCASTCUT_DIR/安装"      ~/.claude/skills/podcastcut-安装
-ln -s "$PODCASTCUT_DIR/edit-chat"      ~/.claude/skills/podcastcut-edit-chat
-ln -s "$PODCASTCUT_DIR/onboarding-chat" ~/.claude/skills/podcastcut-onboarding-chat
-ln -s "$PODCASTCUT_DIR/转录"      ~/.claude/skills/podcastcut-转录
-ln -s "$PODCASTCUT_DIR/粗剪"      ~/.claude/skills/podcastcut-粗剪
-ln -s "$PODCASTCUT_DIR/精剪"      ~/.claude/skills/podcastcut-精剪
-ln -s "$PODCASTCUT_DIR/执行"      ~/.claude/skills/podcastcut-执行
-ln -s "$PODCASTCUT_DIR/后期"      ~/.claude/skills/podcastcut-后期
-ln -s "$PODCASTCUT_DIR/质检"      ~/.claude/skills/podcastcut-质检
-ln -s "$PODCASTCUT_DIR/音质处理"  ~/.claude/skills/podcastcut-音质处理
+bash 安装/install.sh
 
 # 依赖
 brew install node ffmpeg
@@ -49,6 +38,7 @@ cp .env.example .env
 # 自检
 npm install
 npm run doctor
+npm run fresh-agent -- --role podcast
 npm test
 ```
 
@@ -68,6 +58,8 @@ Fresh agent onboarding: see `AGENT_ONBOARDING.md`.
 | 命令 | 用途 |
 |------|------|
 | `npm run doctor` | 检查本机 Node / Python / ffmpeg / 输出目录 / API key / cloud-bridge 状态 |
+| `npm run fresh-agent -- --role podcast` | 检查新专属剪辑 agent 的 snapshot / profile / output / cloud-bridge 是否就绪 |
+| `npm run fresh-agent -- --role dispatcher` | 检查通用 dispatcher agent 的 snapshot / output / cloud-bridge 是否就绪 |
 | `npm test` | 跑本地 regression tests，不需要网络或 API key |
 | `npm run status -- [BASE_DIR]` | 查看当前或指定项目的 `project.json` pipeline 状态 |
 | `npm run validate -- [BASE_DIR] [STAGE]` | 检查某个阶段所需输入文件是否齐全 |

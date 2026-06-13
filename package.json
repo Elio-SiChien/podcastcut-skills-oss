@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "doctor": "node tools/podcastcut.mjs doctor",
+    "fresh-agent": "node tools/podcastcut.mjs fresh-agent",
     "status": "node tools/podcastcut.mjs status",
     "validate": "node tools/podcastcut.mjs validate",
     "test": "bash shared/scripts/tests/run_all.sh"

@@ -61,4 +61,44 @@ for stage in transcribe roughcut fine execute qa audio_quality post; do
   node "$REPO_ROOT/tools/podcastcut.mjs" validate "$BASE_DIR" "$stage" >/dev/null
 done
 
-echo "✅ CLI smoke status/validate passed"
+INSTALL_ROOT="$TMP_DIR/install"
+mkdir -p \
+  "$INSTALL_ROOT/podcastcut-shared/scripts" \
+  "$INSTALL_ROOT/podcastcut-shared/templates" \
+  "$INSTALL_ROOT/podcastcut-edit-chat" \
+  "$INSTALL_ROOT/podcastcut-dispatcher" \
+  "$INSTALL_ROOT/cloud-bridge/scripts" \
+  "$INSTALL_ROOT/profiles"
+
+cat > "$INSTALL_ROOT/podcastcut-shared/install_manifest.json" <<'JSON'
+{
+  "installed_at": "2026-06-12T00:00:00Z",
+  "source_dir": "/tmp/podcastcut-skills",
+  "git_commit": "smoke-test",
+  "git_branch": "main",
+  "git_dirty": false,
+  "schema_version": 1
+}
+JSON
+touch "$INSTALL_ROOT/podcastcut-edit-chat/SKILL.md"
+touch "$INSTALL_ROOT/podcastcut-dispatcher/SKILL.md"
+ln -s "../podcastcut-shared" "$INSTALL_ROOT/podcastcut-edit-chat/shared"
+ln -s "../podcastcut-shared" "$INSTALL_ROOT/podcastcut-dispatcher/shared"
+printf 'https://smoke.trycloudflare.com\n' > "$INSTALL_ROOT/cloud-bridge/current_tunnel_url.txt"
+printf '{"name":"smoke"}\n' > "$INSTALL_ROOT/profiles/smoke.json"
+
+FRESH_PODCAST_OUT="$(node "$REPO_ROOT/tools/podcastcut.mjs" fresh-agent --role podcast --install-root "$INSTALL_ROOT" --output-dir "$TMP_DIR/output")"
+if ! grep -q "podcastcut fresh-agent (podcast)" <<< "$FRESH_PODCAST_OUT"; then
+  echo "❌ fresh-agent podcast did not print role header" >&2
+  echo "$FRESH_PODCAST_OUT" >&2
+  exit 1
+fi
+
+FRESH_DISPATCHER_OUT="$(node "$REPO_ROOT/tools/podcastcut.mjs" fresh-agent --role dispatcher --install-root "$INSTALL_ROOT" --output-dir "$TMP_DIR/output")"
+if ! grep -q "podcastcut fresh-agent (dispatcher)" <<< "$FRESH_DISPATCHER_OUT"; then
+  echo "❌ fresh-agent dispatcher did not print role header" >&2
+  echo "$FRESH_DISPATCHER_OUT" >&2
+  exit 1
+fi
+
+echo "✅ CLI smoke status/validate/fresh-agent passed"

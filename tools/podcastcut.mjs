@@ -17,6 +17,7 @@ function main() {
 
   try {
     if (cmd === 'doctor') return doctor(args);
+    if (cmd === 'fresh-agent') return freshAgent(args);
     if (cmd === 'status') return status(args);
     if (cmd === 'validate') return validate(args);
     usage(1, `unknown command: ${cmd}`);
@@ -30,19 +31,23 @@ function usage(code, msg = '') {
   if (msg) console.error(`ERROR: ${msg}\n`);
   console.log(`Usage:
   npm run doctor
+  npm run fresh-agent -- [--role podcast|dispatcher]
   npm run status -- [BASE_DIR]
   npm run validate -- [BASE_DIR] [STAGE]
 
 Commands:
-  doctor     Check local machine prerequisites.
-  status     Show project.json pipeline state.
-  validate   Check required files for one stage or the current stage.
+  doctor       Check local machine prerequisites.
+  fresh-agent  Check installed snapshot/profile/tunnel readiness for a new agent.
+  status       Show project.json pipeline state.
+  validate     Check required files for one stage or the current stage.
 `);
   process.exit(code);
 }
 
 function doctor(args) {
   const opts = parseOpts(args);
+  if (opts.freshAgent) return freshAgent(args.filter((arg) => arg !== '--fresh-agent'));
+
   const outputDir = resolveOutputDir(opts);
   const python = pythonCommand();
   const checks = [];
@@ -81,6 +86,39 @@ function doctor(args) {
   checks.push(checkPythonImports('python optional deps', pyOptional, false, python));
 
   printChecks('podcastcut doctor', checks);
+  exitForRequiredChecks(checks);
+}
+
+function freshAgent(args) {
+  const opts = parseOpts(args);
+  const role = normalizeFreshAgentRole(opts.role || opts._[0] || 'podcast');
+  const installRoot = opts.installRoot ? path.resolve(opts.installRoot) : defaultInstallRoot();
+  const outputDir = resolveOutputDir(opts);
+  const sharedDir = path.join(installRoot, 'podcastcut-shared');
+  const cloudBridgeDir = path.join(installRoot, 'cloud-bridge');
+  const profilesDir = path.join(installRoot, 'profiles');
+  const skillName = role === 'dispatcher' ? 'podcastcut-dispatcher' : 'podcastcut-edit-chat';
+  const checks = [];
+
+  checks.push(checkPath('installed skills root', installRoot, 'dir', true));
+  checks.push(checkPath('snapshot manifest', path.join(sharedDir, 'install_manifest.json'), 'file', true));
+  checks.push(checkManifest('snapshot manifest details', path.join(sharedDir, 'install_manifest.json'), false));
+  checks.push(checkPath('snapshot shared scripts', path.join(sharedDir, 'scripts'), 'dir', true));
+  checks.push(checkPath(`${skillName} SKILL.md`, path.join(installRoot, skillName, 'SKILL.md'), 'file', true));
+  checks.push(checkPath(`${skillName} shared scripts`, path.join(installRoot, skillName, 'shared', 'scripts'), 'dir', true));
+  checks.push(checkWritableDir('output dir', outputDir, true));
+  checks.push(checkPath('cloud-bridge scripts', path.join(cloudBridgeDir, 'scripts'), 'dir', role === 'podcast'));
+  checks.push(checkTunnelUrl(path.join(cloudBridgeDir, 'current_tunnel_url.txt'), false));
+
+  if (role === 'podcast') {
+    checks.push(checkPath('profiles dir', profilesDir, 'dir', true));
+    checks.push(checkProfileJson(profilesDir, true));
+    checks.push(checkProfileAmbiguity(profilesDir));
+  } else {
+    checks.push(checkPath('profiles dir', profilesDir, 'dir', false));
+  }
+
+  printChecks(`podcastcut fresh-agent (${role})`, checks);
   exitForRequiredChecks(checks);
 }
 
@@ -186,9 +224,19 @@ function parseOpts(args) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--output-dir') out.outputDir = args[++i];
+    else if (a.startsWith('--output-dir=')) out.outputDir = a.slice('--output-dir='.length);
+    else if (a === '--install-root') out.installRoot = args[++i];
+    else if (a.startsWith('--install-root=')) out.installRoot = a.slice('--install-root='.length);
+    else if (a === '--role') out.role = args[++i];
+    else if (a.startsWith('--role=')) out.role = a.slice('--role='.length);
+    else if (a === '--fresh-agent') out.freshAgent = true;
     else out._.push(a);
   }
   return out;
+}
+
+function defaultInstallRoot() {
+  return path.join(os.homedir(), '.claude', 'skills');
 }
 
 function resolveOutputDir(opts = {}) {
@@ -223,6 +271,12 @@ function pythonCommand() {
   return process.env.PYTHON || 'python3';
 }
 
+function normalizeFreshAgentRole(role) {
+  if (['podcast', 'per-podcast', 'editing'].includes(role)) return 'podcast';
+  if (['dispatcher', 'shared', 'infra'].includes(role)) return 'dispatcher';
+  throw new Error(`unknown fresh-agent role: ${role}`);
+}
+
 function checkCommand(cmd, args, { name = cmd, required }) {
   const res = spawnSync(cmd, args, { encoding: 'utf8' });
   const ok = !res.error && res.status === 0;
@@ -249,6 +303,74 @@ function checkAny(name, dir, regex, required) {
     hit = '';
   }
   return { name, ok: Boolean(hit), required, detail: hit ? path.join(dir, hit) : dir };
+}
+
+function checkManifest(name, manifestPath, required) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const commit = manifest.git_commit || 'unknown';
+    const branch = manifest.git_branch || 'unknown';
+    const dirty = manifest.git_dirty ? ' DIRTY' : '';
+    const installedAt = manifest.installed_at || 'unknown-time';
+    return {
+      name,
+      ok: true,
+      required,
+      detail: `${commit} on ${branch}${dirty}, installed ${installedAt}`,
+    };
+  } catch (err) {
+    return { name, ok: false, required, detail: `${manifestPath} (${err.message})` };
+  }
+}
+
+function checkProfileJson(dir, required) {
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
+  } catch {
+    files = [];
+  }
+  return {
+    name: 'podcast profile json',
+    ok: files.length > 0,
+    required,
+    detail: files.length ? files.join(', ') : dir,
+  };
+}
+
+function checkProfileAmbiguity(dir) {
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter((name) => name.endsWith('.json')).sort();
+  } catch {
+    files = [];
+  }
+  return {
+    name: 'single default profile',
+    ok: files.length <= 1,
+    required: false,
+    detail: files.length <= 1 ? (files[0] || 'none') : `multiple profiles: ${files.join(', ')}; agent must ask which podcast`,
+  };
+}
+
+function checkTunnelUrl(file, required) {
+  try {
+    const value = fs.readFileSync(file, 'utf8').trim();
+    const ok = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/.test(value) || /^https?:\/\//.test(value);
+    return {
+      name: 'cloud-bridge tunnel URL',
+      ok,
+      required,
+      detail: ok ? value : `${file} is not a URL`,
+    };
+  } catch {
+    return {
+      name: 'cloud-bridge tunnel URL',
+      ok: false,
+      required,
+      detail: `${file} missing; ask operator for current URL or install launchd`,
+    };
+  }
 }
 
 function checkWritableDir(name, dir, required) {

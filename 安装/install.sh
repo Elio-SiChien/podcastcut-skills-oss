@@ -48,6 +48,7 @@ fi
 OUTPUT_DIR="${OUTPUT_DIR:-/Volumes/T9/claude_skill/podcastcut/output}"
 INSTALL_ROOT="${INSTALL_ROOT:-$HOME/.claude/skills}"
 SHARED_DIR="$INSTALL_ROOT/podcastcut-shared"
+CLOUD_BRIDGE_DIR="$INSTALL_ROOT/cloud-bridge"
 
 # Skills to install. Order is arbitrary; 安装 itself is included so users can
 # run the install skill / sync from inside Claude Code.
@@ -72,6 +73,11 @@ echo "   OUTPUT_DIR     = $OUTPUT_DIR"
 echo ""
 
 mkdir -p "$INSTALL_ROOT"
+mkdir -p "$INSTALL_ROOT/profiles"
+
+if [ -f "$PODCASTCUT_DIR/profiles/README.md" ]; then
+  cp "$PODCASTCUT_DIR/profiles/README.md" "$INSTALL_ROOT/profiles/README.md"
+fi
 
 # ── Step 1: snapshot shared/ ─────────────────────────────────────────────
 # rsync would be cleaner but cp -R is in posix and avoids the rsync dependency.
@@ -79,6 +85,15 @@ mkdir -p "$INSTALL_ROOT"
 echo "📦 Snapshotting shared/ → $SHARED_DIR"
 rm -rf "$SHARED_DIR"
 cp -R "$PODCASTCUT_DIR/shared" "$SHARED_DIR"
+
+if [ -f "$PODCASTCUT_DIR/AGENT_ONBOARDING.md" ]; then
+  cp "$PODCASTCUT_DIR/AGENT_ONBOARDING.md" "$SHARED_DIR/QUICKSTART_AGENT.md"
+fi
+
+echo "🌉 Snapshotting cloud-bridge/ → $CLOUD_BRIDGE_DIR"
+rm -rf "$CLOUD_BRIDGE_DIR"
+cp -R "$PODCASTCUT_DIR/cloud-bridge" "$CLOUD_BRIDGE_DIR"
+rm -rf "$CLOUD_BRIDGE_DIR/sessions" "$CLOUD_BRIDGE_DIR/pending" "$CLOUD_BRIDGE_DIR/current_tunnel_url.txt"
 
 # Record the dev-repo commit hash and timestamp at snapshot time. This is the
 # debugging anchor when an agent reports stale behavior — it lets you ask
@@ -153,6 +168,12 @@ done
 echo ""
 echo "🔍 Pre-flight: verifying installed paths …"
 FAIL=0
+for path in "$SHARED_DIR/QUICKSTART_AGENT.md" "$CLOUD_BRIDGE_DIR/scripts"; do
+  if [ ! -e "$path" ]; then
+    echo "  ❌ missing: $path"
+    FAIL=$((FAIL + 1))
+  fi
+done
 for s in "${SKILLS[@]}"; do
   DST="$INSTALL_ROOT/podcastcut-$s"
   [ -d "$DST" ] || continue
