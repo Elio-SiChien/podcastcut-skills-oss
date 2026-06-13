@@ -12,6 +12,10 @@ description: |
 
 # Dispatcher — per-podcaster agent provisioning
 
+> 配套 SOP：[`docs/dispatcher-operator-sop.md`](../docs/dispatcher-operator-sop.md) ——
+> spawn flow（DM-first 6 步）、bug routing fan-in/fan-out、跨 agent 改进的
+> 完整规范。本文件只覆盖 action card 怎么开；流程协作规则看 SOP。
+
 ## 🚨 Path bootstrap — 跑 bash 前必做
 
 ```bash
@@ -117,22 +121,34 @@ spawned agent gets:
   identity is what's per-podcaster)
 - Same Slock scopes the operator grants it
 
-## After spawn — what the new agent should do
+## After spawn — DM-first initialization
 
-Once the new `@podcast-editor-<slug>` boots, the operator should DM it
-once to:
+新 agent boot 起来后 **全程在 operator ↔ dispatcher ↔ new-agent 的 DM 里完成
+初始化，然后再拉进 podcast channel**。podcaster 第一次看到新 agent 就是 channel-join
+greeting，不是 spawn 配置 noise。完整 6 步流程见 `docs/dispatcher-operator-sop.md`
+的 "Spawn flow — DM-first" 段；这里只列 dispatcher 在 DM 里需要做的：
 
-1. Copy or symlink the podcaster's `profile.<name>.json` into the new
-   agent's workspace at a canonical path (e.g. `profile.json`) so
-   `edit-chat/SKILL.md` finds it.
-2. Confirm the agent has access to `cloud-bridge/` and the project
-   `output/` dir (shared filesystem).
-3. Have the podcaster DM the new agent directly going forward.
+1. 跑 `npm run fresh-agent -- --role podcast` readiness check（PR #111 引入；注意 npm 的 `--` 分隔符）。
+2. 确认 installed runtime profile `~/.claude/skills/profiles/<播客名>.json` 已 seed（onboarding-chat 或 dispatcher 写入这里；repo-local `profiles/` 是 docs/templates，runtime 不读那）。
+3. 必要时 `bash 安装/install.sh` 刷 snapshot 到 latest。
+4. DM 一条 readiness 报告给 operator，operator 决定何时把 agent + podcaster
+   拉进 podcast channel。
+
+被拉进 channel 后，PR #110 的 channel-join 触发 0 greeting 接力。
 
 > Cross-agent coordination caveat: per-podcaster agents don't share
 > memory. If you want them to learn from each other (e.g. detector
 > tuning patterns generalising across podcasts), that's a future Stage
 > 4 of the self-iterating loop — not in scope for this skill.
+
+## Bug routing — dispatcher is the shared-code PR owner
+
+per-podcast agent 报 bug → dispatcher 修一次 → install snapshot 扇出给所有 agent。
+避免每个 podcast agent 在自己 MEMORY 里各自记一份 workaround。完整流程见
+`docs/dispatcher-operator-sop.md` 的 "Bug routing" 段。本 skill 不直接处理 bug
+fix（dispatcher 走标准 worktree → PR → squash merge → `bash 安装/install.sh`
+→ DM 受影响 agent）；只是提醒：**shared code 的修改路径在 dispatcher 手上**，
+per-podcast agent 想改 shared 必须经过 dispatcher review。
 
 ## What this skill does NOT do
 
