@@ -5,6 +5,7 @@
     "doctor": "node tools/podcastcut.mjs doctor",
     "footer": "node tools/podcastcut.mjs footer",
     "fresh-agent": "node tools/podcastcut.mjs fresh-agent",
+    "oss:hygiene": "node tools/oss-hygiene-check.mjs",
     "status": "node tools/podcastcut.mjs status",
     "validate": "node tools/podcastcut.mjs validate",
     "test": "bash shared/scripts/tests/run_all.sh"

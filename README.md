@@ -94,6 +94,10 @@ Fresh agent onboarding: see `AGENT_ONBOARDING.md`.
 
 Fork 自 [@luoyuweidu1](https://github.com/luoyuweidu1) 的 [podcastcut-skills](https://github.com/luoyuweidu1/podcastcut-skills)。核心转录、分析、质检架构来自原项目，本版本在此基础上做了审查体验重设计和功能扩展。
 
+## OSS Freeze
+
+商业化开发转 private 前的开源冻结流程见 `docs/oss-freeze/runbook.md`。冻结版 README 模板见 `docs/oss-freeze/README.snapshot.md`。
+
 ## License
 
-MIT
+MIT. See `LICENSE`.
