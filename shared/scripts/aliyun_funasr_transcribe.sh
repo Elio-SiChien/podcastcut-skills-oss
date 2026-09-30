@@ -56,10 +56,13 @@ if [ -z "$DASHSCOPE_API_KEY" ]; then
 fi
 
 API_KEY="$DASHSCOPE_API_KEY"
+BASE_URL="${DASHSCOPE_HTTP_BASE_URL:-https://dashscope.aliyuncs.com/api/v1}"
+BASE_URL="${BASE_URL%/}"
 
 echo "🎤 提交阿里云转录任务 (paraformer-v2 + timestamp_alignment_enabled)"
 echo "   音频URL: $AUDIO_URL"
 echo "   说话人数: $SPEAKER_COUNT"
+echo "   API Base URL: $BASE_URL"
 if [ -n "$VOCABULARY_ID" ]; then
   echo "   热词表: $VOCABULARY_ID"
 fi
@@ -97,7 +100,7 @@ if [ "${DRY_RUN:-0}" = "1" ]; then
 fi
 
 # 提交任务
-RESPONSE=$(echo "$REQUEST_BODY" | curl -s -X POST "https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription" \
+RESPONSE=$(echo "$REQUEST_BODY" | curl -s -X POST "$BASE_URL/services/audio/asr/transcription" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -H "X-DashScope-Async: enable" \
@@ -125,7 +128,7 @@ while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
   sleep 5
   ATTEMPT=$((ATTEMPT + 1))
 
-  QUERY_RESPONSE=$(curl -s -X GET "https://dashscope.aliyuncs.com/api/v1/tasks/$TASK_ID" \
+  QUERY_RESPONSE=$(curl -s -X GET "$BASE_URL/tasks/$TASK_ID" \
     -H "Authorization: Bearer $API_KEY")
 
   STATUS=$(echo "$QUERY_RESPONSE" | grep -o '"task_status":"[^"]*"' | cut -d'"' -f4)

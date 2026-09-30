@@ -17,6 +17,32 @@ pos: chat 服务的主流程 skill；调度现有 6 个 skill
 
 # Edit（chat 版主流程）
 
+## 必须遵守：KISS 单一工作流入口
+
+用户不需要理解转录、粗剪、精剪、执行、质检这些内部 skill。对外只暴露 4 步：
+
+1. **偏好确认**：开始剪辑前必须确认人数、姓名/角色、剪辑风格、删减强度、目标时长。先跑：
+   `npm run episode -- start "$BASE_DIR" ...`
+   如果缺字段，CLI 会输出必须问用户的问题；缺字段时禁止进入转录或分析。
+2. **自动分析**：转录、粗剪、精剪都可以自动跑，但粗剪完成后必须停在 `roughcut=awaiting_review`，精剪完成后必须停在 `fine=awaiting_review`。
+3. **审查确认**：必须给审查页，或等用户明确说 `OK`。确认后跑：
+   `npm run episode -- review "$BASE_DIR" roughcut --ok`
+   `npm run episode -- review "$BASE_DIR" fine --ok`
+4. **出片交付**：出片前必须跑：
+   `npm run episode -- execute "$BASE_DIR"`
+   只有 gate 通过才允许调用 `podcastcut:执行` / `cut_audio.py`。
+
+成品交付后再提供可选能力：质检 / 音质处理 / 后期。默认不要把这些拆碎流程提前暴露给用户。
+
+### 自进化默认规则
+
+每次用户审查提交或明确 OK 后，跑：
+
+`npm run episode -- learn "$BASE_DIR" roughcut` 或 `npm run episode -- learn "$BASE_DIR" fine`
+
+它只生成 `2_分析/learning_candidates.json`。候选长期规则必须给用户轻量确认，确认后才 append 到 `profiles/<播客名>.roughcut.lessons.jsonl` 或 `profiles/<播客名>.fine.lessons.jsonl`。不要静默写入长期偏好。
+
+
 > 用户扔 audio attachment 进对话，我负责开剪。每个阶段在 chat 里报告，关键 checkpoint 给用户决策。
 
 ## 🚨 Path bootstrap — 跑任何 bash 之前必做
@@ -710,4 +736,4 @@ AI 帮你做的：
 - 状态跟踪：用 `manifest.js` 现有的 `project.json` set-stage 机制——chat 里也能看到当前在哪一步
 - 用户随时打断：用户说"暂停" / "撤销" → 停 current 阶段不继续
 
-不要尝试在一次 chat 里把 5 个阶段全跑完。**每个阶段 await 用户确认或显式 "继续" 后才进下一阶段**——保持对话感，给用户停的机会。
+不要尝试在一次 chat 里把 5 个阶段全跑完。**粗剪和精剪必须 await 用户审查或显式 OK；出片前必须跑 `npm run episode -- execute "$BASE_DIR"` 通过 gate。**保持对话感，给用户停的机会。
