@@ -46,7 +46,7 @@ def whisper_prompt(req: dict) -> str:
 
 def _run_whisper(audio, device: str, prompt: str, progress=True):
     from faster_whisper import WhisperModel
-    compute = "float16" if device == "cuda" else "int8"
+    compute = "default" if device == "cuda" else "int8"     # default: 显卡不支持 float16（如 GTX 10 系）时自动选能用的
     model = WhisperModel(config.WHISPER_MODEL, device=device, compute_type=compute, cpu_threads=os.cpu_count() or 4)
     segs, _info = model.transcribe(audio, language="zh", word_timestamps=True, vad_filter=True,
                                    initial_prompt=prompt, beam_size=5, condition_on_previous_text=False)
