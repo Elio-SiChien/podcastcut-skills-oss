@@ -788,14 +788,14 @@ def main():
     )
     final_duration = float(result.stdout.strip())
 
-    original_min = int(total_duration // 60)
-    final_min = int(final_duration // 60)
-    saved_min = original_min - final_min
+    # 用秒算再换分钟：原来按整分钟取整，不到 1 分钟的音频会除以 0 崩溃
+    saved = total_duration - final_duration
+    pct = saved / total_duration * 100 if total_duration > 0 else 0.0
 
     print("📈 剪辑效果:")
-    print(f"   原始时长: {original_min}分钟")
-    print(f"   精剪时长: {final_min}分钟")
-    print(f"   节省时间: {saved_min}分钟 ({saved_min/original_min*100:.1f}%)")
+    print(f"   原始时长: {total_duration / 60:.1f}分钟")
+    print(f"   精剪时长: {final_duration / 60:.1f}分钟")
+    print(f"   节省时间: {saved / 60:.1f}分钟 ({pct:.1f}%)")
 
 
 if __name__ == '__main__':

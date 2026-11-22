@@ -24,6 +24,7 @@
 """
 
 import json
+import tempfile  # Windows 补丁：原版写死 /tmp（2026-11-22）
 import subprocess
 import sys
 import os
@@ -171,7 +172,7 @@ def main():
     filter_parts.append(f'{concat_inputs}concat=n={len(keep_segments)}:v=0:a=1[out]')
 
     filter_script = ';\n'.join(filter_parts)
-    filter_file = '/tmp/_trim_silences_filter.txt'
+    filter_file = os.path.join(tempfile.gettempdir(), '_trim_silences_filter.txt')
     with open(filter_file, 'w') as f:
         f.write(filter_script)
 
