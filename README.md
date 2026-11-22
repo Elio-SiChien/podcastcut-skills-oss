@@ -6,6 +6,19 @@ Commercial development has moved to a private repository. This OSS snapshot is
 provided for reference, learning, and self-hosted experimentation under the MIT
 License. It will not receive ongoing feature updates from the commercial branch.
 
+## New: `pcut` — record to finished episode on Windows (2026-11)
+
+The skills above describe each step for an AI agent to follow. `app/` adds a runnable pipeline that connects them:
+one command takes a raw recording to a finished, loudness-normalized MP3 plus transcript, chapters and an article
+draft, pausing once for you to review the suggested cuts in a local web page. Tested on a 62-minute, 3-speaker
+interview (cut to 39.5 min). See [app/README.md](app/README.md) (Chinese).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File 安装\install_windows.ps1
+.\pcut.bat doctor
+.\pcut.bat run <recording> <episode-folder>
+```
+
 ## What Is Included
 
 - Claude Code Skills for a podcast editing pipeline

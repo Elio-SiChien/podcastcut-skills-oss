@@ -8,7 +8,8 @@
     "oss:hygiene": "node tools/oss-hygiene-check.mjs",
     "status": "node tools/podcastcut.mjs status",
     "validate": "node tools/podcastcut.mjs validate",
-    "test": "bash shared/scripts/tests/run_all.sh"
+    "test": "bash shared/scripts/tests/run_all.sh",
+    "episode": "node tools/podcastcut.mjs episode"
   },
   "dependencies": {
     "js-yaml": "^4.1.1"

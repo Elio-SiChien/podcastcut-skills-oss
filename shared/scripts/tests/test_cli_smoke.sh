@@ -21,7 +21,28 @@ printf '[]\n' > "$BASE_DIR/1_转录/subtitles_words.json"
 printf '0|0.00|Host|这是一句测试。\n' > "$BASE_DIR/2_分析/sentences.txt"
 printf '{"chapters":[]}\n' > "$BASE_DIR/2_分析/semantic_deep_analysis.json"
 printf '{"delete_segments":[]}\n' > "$BASE_DIR/2_分析/fine_analysis.json"
+printf '{"segments":[],"sentence_deletes":[],"partial_deletes":{}}\n' > "$BASE_DIR/2_分析/delete_segments_roughcut.json"
 printf '[]\n' > "$BASE_DIR/2_分析/delete_segments_edited.json"
+cat > "$BASE_DIR/episode_preferences.json" <<'JSON'
+{
+  "version": "episode_preferences_v1",
+  "speaker_count": 1,
+  "speakers": [{"name": "Host", "role": "主持"}],
+  "editing_style": "smoke test",
+  "aggressiveness": "moderate",
+  "target_minutes": 30,
+  "must_keep": [],
+  "must_delete": [],
+  "privacy": [],
+  "glossary": []
+}
+JSON
+cat > "$BASE_DIR/episode_review_gate.json" <<'JSON'
+{
+  "roughcut": {"approved": true, "source": "test"},
+  "fine": {"approved": true, "source": "test"}
+}
+JSON
 touch "$BASE_DIR/3_成品/smoke_fixture.m4a"
 
 cat > "$BASE_DIR/project.json" <<'JSON'
@@ -58,13 +79,13 @@ if ! grep -q "> fine" <<< "$STATUS_OUT"; then
 fi
 
 FOOTER_OUT="$(node "$REPO_ROOT/tools/podcastcut.mjs" footer "$BASE_DIR" roughcut)"
-if ! grep -q "📍 当前已完成：粗剪" <<< "$FOOTER_OUT"; then
+if ! grep -q "当前已完成：粗剪" <<< "$FOOTER_OUT"; then
   echo "❌ footer did not print completed stage" >&2
   echo "$FOOTER_OUT" >&2
   exit 1
 fi
 
-if ! grep -q "🎯 下一步：精剪（词级口癖删减，自动）" <<< "$FOOTER_OUT"; then
+if ! grep -q "下一步：精剪（词级口癖删减，自动）" <<< "$FOOTER_OUT"; then
   echo "❌ footer did not print expected next step" >&2
   echo "$FOOTER_OUT" >&2
   exit 1

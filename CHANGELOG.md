@@ -1,5 +1,16 @@
 # Podcastcut Skills 更新日志
 
+## v5.0.0-pcut - 2026-11-23 · 从录音到成片的可运行流水线（app/）
+
+- 新增 `app/pcut`：new → transcribe → propose → review（本地网页审删减）→ assemble → verify → article，一条 `run` 串起来，断点续跑
+- 每期开剪前必问片头 / 目标时长 / 剪辑原则，上期答案只作参考
+- 大模型给连续块打分、程序按目标时长挑（稳定达标），assemble 拦截未审核的建议
+- faster-whisper 词级时间戳；CAM++ 认声音区分说话人（可选）；显卡失败自动退回 CPU
+- 公众号图文草稿：金句逐句核对原文
+- Windows：`安装/install_windows.ps1`、`pcut.bat`、`doctor`
+- 修复：`trim_silences.py` 写死 `/tmp`；`cut_audio.py` 不到 1 分钟的音频除以 0
+- 测试：`app/tests`（不需要 Key 和模型，含一次真实剪辑）
+
 ## v4.0.5 - 2026-02-19 🎨 审查页面交互增强 + 说话人音量对齐
 
 **用户反馈**：5 项迭代需求。
